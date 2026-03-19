@@ -78,7 +78,6 @@ if (auditCloseBtn) {
     });
 }
 
-
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 function playProceduralSound(type) {
     if(audioCtx.state === 'suspended') audioCtx.resume();
@@ -86,9 +85,9 @@ function playProceduralSound(type) {
     const gainNode = audioCtx.createGain();
     osc.connect(gainNode);
     gainNode.connect(audioCtx.destination);
-    
+
     if (type === 'pop') {
-       
+
         osc.type = 'sine';
         osc.frequency.setValueAtTime(800, audioCtx.currentTime);
         osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.05);
@@ -97,7 +96,7 @@ function playProceduralSound(type) {
         osc.start();
         osc.stop(audioCtx.currentTime + 0.1);
     } else if (type === 'chime') {
-       
+
         osc.type = 'sine';
         osc.frequency.setValueAtTime(523.25, audioCtx.currentTime);
         osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1);
@@ -119,14 +118,14 @@ function updateConnectionStatus(state, message) {
     if (state === "connecting") niceMessage = "Establishing Link...";
     if (state === "waiting") niceMessage = "Active • Waiting for peer";
     if (state === "disconnected") niceMessage = "Workspace Offline";
-    
+
     ui.status.text.textContent = niceMessage;
 }
 
 function showToast(title, message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    
+
     let iconClass = 'fa-circle-info';
     if (type === 'success') iconClass = 'fa-circle-check';
     if (type === 'error') iconClass = 'fa-circle-exclamation';
@@ -138,13 +137,11 @@ function showToast(title, message, type = 'info') {
             <div class="toast-message">${message}</div>
         </div>
     `;
-    
+
     ui.toastContainer.appendChild(toast);
-    
-   
+
     setTimeout(() => toast.classList.add('show'), 10);
-    
-   
+
     setTimeout(() => {
         toast.classList.remove('show');
         setTimeout(() => toast.remove(), 300);
@@ -156,18 +153,18 @@ function generateSecureWorkspaceId() {
     let result = '';
     const randomArray = new Uint8Array(8);
     window.crypto.getRandomValues(randomArray);
-    
+
     for (let i = 0; i < 8; i++) {
         result += chars[randomArray[i] % chars.length];
     }
-    
+
     return `${result.slice(0,4)}-${result.slice(4,8)}`;
 }
 
 ui.inputs.roomId.addEventListener('input', (e) => {
-   
+
     if (e.target.value.includes('?workspace=')) return;
-    
+
     let val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (val.length > 4) {
         val = val.slice(0,4) + '-' + val.slice(4,8);
@@ -200,24 +197,22 @@ window.copyToClipboard = function(text) {
     }
 };
 
-
 let currentGeneratedCode = null;
 
 ui.buttons.showGenerate.addEventListener('click', () => {
-   
+
     ui.panels.actionSelection.style.display = 'none';
     ui.panels.join.style.display = 'none';
     ui.panels.share.style.display = 'block';
-    
-   
+
     currentGeneratedCode = generateSecureWorkspaceId();
     ui.text.displayRoomCodeHome.textContent = currentGeneratedCode;
-    
+
     showToast('Vault Generated', 'Secure code created locally.', 'success');
 });
 
 ui.buttons.showJoin.addEventListener('click', () => {
-   
+
     ui.panels.actionSelection.style.display = 'none';
     ui.panels.share.style.display = 'none';
     ui.panels.join.style.display = 'block';
@@ -260,7 +255,6 @@ if (ui.inputs.folderInput) {
         e.target.value = '';
     });
 }
-
 
 ui.buttons.destroy.addEventListener('click', () => {
     if (typeof peerConnection !== 'undefined' && peerConnection && peerConnection.connectionState === 'connected') {
@@ -403,17 +397,16 @@ function updateTransferProgress(fileId, percent, statusText, speedStr, etaStr) {
     const pct = document.getElementById(`pct-${fileId}`);
     const stat = document.getElementById(`status-${fileId}`);
     const item = document.getElementById(`item-${fileId}`);
-    
+
     if (bar) bar.style.width = `${percent}%`;
     if (pct) pct.textContent = `${Math.round(percent)}%`;
     if (stat) stat.textContent = statusText;
-    
+
     if (percent === 100 && item) {
         item.classList.add('completed');
         const fill = item.querySelector('.progress-bar-fill');
         if (fill) fill.style.background = 'var(--accent-emerald)';
-        
-       
+
         const statsArea = document.getElementById(`stats-${fileId}`);
         if (statsArea) {
              statsArea.innerHTML = `<span class="status-label ${statusText.toLowerCase().includes('complete') ? 'received' : 'sent'}">${statusText}</span>`;
@@ -431,10 +424,10 @@ window.showToast = showToast;
 socket.on('global-stats-updated', (stats) => {
     const gb = (stats.bytesTransferred / (1024 * 1024 * 1024)).toFixed(3);
     const count = stats.filesTransferred;
-    
+
     const globalBytesEl = document.getElementById('global-bytes');
     const globalCountEl = document.getElementById('global-count');
-    
+
     if (globalBytesEl) globalBytesEl.textContent = `${gb} GB`;
     if (globalCountEl) globalCountEl.textContent = count;
 });
@@ -496,13 +489,13 @@ window.addEventListener('drop', async (e) => {
     e.preventDefault();
     dragCounter = 0;
     dropOverlay.classList.remove('active');
-    
+
     if (document.getElementById('screen-transfer').classList.contains('active')) {
         const items = e.dataTransfer.items;
         if (items && items.length > 0) {
             let directFiles = [];
             let folderItems = [];
-            
+
             for (let i = 0; i < items.length; i++) {
                 const item = items[i];
                 if (item.kind === 'file') {
@@ -515,26 +508,24 @@ window.addEventListener('drop', async (e) => {
                 }
             }
 
-           
             if (directFiles.length > 0 && typeof handleFiles === 'function') {
                 handleFiles(directFiles);
             }
 
-           
             if (folderItems.length > 0 && typeof JSZip !== 'undefined') {
                 showToast('Zipping Folder...', 'Compressing securely on your device...', 'info');
                 for (let folder of folderItems) {
                     const zip = new JSZip();
                     let flatFiles = [];
                     await scanFiles(folder, flatFiles);
-                    
+
                     flatFiles.forEach(f => {
                         zip.file(f.path, f.file);
                     });
-                    
+
                     const blob = await zip.generateAsync({type:"blob"});
                     const zipFile = new File([blob], folder.name + ".zip", { type: "application/zip" });
-                    
+
                     if (typeof handleFiles === 'function') {
                         handleFiles([zipFile]);
                     }

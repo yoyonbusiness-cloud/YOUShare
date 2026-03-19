@@ -20,29 +20,23 @@ async function runTest() {
     const page = await browser.newPage();
     await page.setViewport(device);
 
-    // 1. Hero Page
     await page.goto('http://localhost:3000', { waitUntil: 'networkidle0' });
-    await new Promise(r => setTimeout(r, 500)); // UI breathing room
+    await new Promise(r => setTimeout(r, 500)); 
     await page.screenshot({ path: path.join(outDir, `${device.name}_hero.png`), fullPage: true });
 
-    // 2. Join Workspace
-    // Click create vault button
     await page.evaluate(() => document.querySelector('#show-generate-btn').click());
     await new Promise(r => setTimeout(r, 500)); 
     await page.evaluate(() => document.querySelector('#final-join-generated-btn').click());
-    await new Promise(r => setTimeout(r, 1000)); // Wait for transition and connection
-    
-    // 3. Workspace Page
+    await new Promise(r => setTimeout(r, 1000)); 
+
     await page.screenshot({ path: path.join(outDir, `${device.name}_workspace.png`), fullPage: true });
-    
-    // 4. Trigger Hosted Drop Modal
-    // Simulate drop event on body with no peer connected
+
     await page.evaluate(() => {
         const file = new File(['dummy content'], 'test.txt', { type: 'text/plain' });
-        window.handleFiles([file]); // call the global function directly
+        window.handleFiles([file]); 
     });
-    
-    await new Promise(r => setTimeout(r, 500)); // Wait for modal animation
+
+    await new Promise(r => setTimeout(r, 500)); 
     await page.screenshot({ path: path.join(outDir, `${device.name}_modal.png`), fullPage: true });
 
     await page.close();

@@ -1,14 +1,10 @@
-// hosted-drop.js — Zero-Knowledge Hosted Drop
-// The server ONLY ever receives AES-encrypted bytes.
-// The decryption key lives in the URL fragment (#) which browsers never send to the server.
 
-const DROP_MAX_BYTES = 512 * 1024 * 1024; // 512MB
+const DROP_MAX_BYTES = 512 * 1024 * 1024; 
 
-// ─── Generate a new random AES-GCM key for one drop ─────────────────────────
 async function generateDropKey() {
     return await crypto.subtle.generateKey(
         { name: 'AES-GCM', length: 256 },
-        true, // exportable → we embed it in the URL fragment
+        true, 
         ['encrypt', 'decrypt']
     );
 }
@@ -23,25 +19,21 @@ async function importDropKey(b64) {
     return await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
 }
 
-// ─── Encrypt file → upload → return shareable URL ────────────────────────────
 async function hostedDrop(file, onProgress) {
     if (file.size > DROP_MAX_BYTES) {
         throw new Error(`File too large for hosted drop (max 512 MB). Use P2P for large files.`);
     }
 
-    // 1. Generate one-time AES key
     const key = await generateDropKey();
     const keyB64 = await exportDropKey(key);
 
     onProgress?.('encrypting', 0);
     if (window.auditLog) auditLog(`🔒 Generating drop key for "${file.name}"`);
 
-    // 2. Encrypt entire file with a fresh IV
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const buf = await file.arrayBuffer();
     const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, buf);
 
-    // 3. Pack: [12-byte IV | ciphertext]
     const packed = new Uint8Array(12 + cipher.byteLength);
     packed.set(iv, 0);
     packed.set(new Uint8Array(cipher), 12);
@@ -49,7 +41,6 @@ async function hostedDrop(file, onProgress) {
     onProgress?.('uploading', 0);
     if (window.auditLog) auditLog(`📤 Uploading encrypted drop (${(packed.byteLength / 1e6).toFixed(1)} MB) — server sees only ciphertext`);
 
-    // 4. Upload via XHR so we can track progress
     const token = await new Promise((resolve, reject) => {
         const fd = new FormData();
         fd.append('file', new Blob([packed.buffer]), file.name + '.enc');
@@ -74,12 +65,10 @@ async function hostedDrop(file, onProgress) {
 
     if (window.auditLog) auditLog(`✅ Drop stored. Token: ${token} — key never sent to server`);
 
-    // 5. Return the shareable link (key in fragment = never sent to server)
     const url = `${window.location.origin}/drop.html?t=${token}#key=${encodeURIComponent(keyB64)}`;
     return { url, token, keyB64, expires: Date.now() + 60 * 60 * 1000 };
 }
 
-// ─── Receiver side: detect drop landing page ──────────────────────────────────
 async function receiveHostedDrop() {
     const params = new URLSearchParams(window.location.search);
     const token = params.get('t');
@@ -88,7 +77,6 @@ async function receiveHostedDrop() {
     if (!token || !hash.startsWith('#key=')) return false;
     const keyB64 = decodeURIComponent(hash.slice(5));
 
-    // Fetch drop metadata first
     let meta;
     try {
         const r = await fetch(`/drop-info/${token}`);
@@ -128,7 +116,6 @@ async function receiveHostedDrop() {
             return;
         }
 
-        // Trigger download
         const blob = new Blob([plain]);
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);

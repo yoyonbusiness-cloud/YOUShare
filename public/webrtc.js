@@ -77,13 +77,13 @@ async function generateECDHKeyPair() {
 }
 
 async function deriveSharedKey(theirPublicKeyJwk, passphrase = '') {
-   
+
     const theirPublicKey = await crypto.subtle.importKey(
         'jwk', theirPublicKeyJwk,
         { name: 'ECDH', namedCurve: 'P-256' },
         false, []
     );
-   
+
     const sharedBits = await crypto.subtle.deriveBits(
         { name: 'ECDH', public: theirPublicKey },
         myECDHKeyPair.privateKey,
@@ -91,8 +91,6 @@ async function deriveSharedKey(theirPublicKeyJwk, passphrase = '') {
     );
     auditLog('🤝 Shared secret computed via ECDH — this value exists only in RAM, never transmitted');
 
-   
-   
     let keyMaterial = sharedBits;
     if (passphrase) {
         const enc = new TextEncoder();
@@ -101,7 +99,7 @@ async function deriveSharedKey(theirPublicKeyJwk, passphrase = '') {
             { name: 'PBKDF2', salt: enc.encode('YS_ECDH_PIN'), iterations: 10000, hash: 'SHA-256' },
             pinKey, 256
         );
-       
+
         const a = new Uint8Array(sharedBits), b = new Uint8Array(pinBits);
         const combined = new Uint8Array(32);
         for (let i = 0; i < 32; i++) combined[i] = a[i] ^ b[i];
@@ -109,7 +107,6 @@ async function deriveSharedKey(theirPublicKeyJwk, passphrase = '') {
         auditLog('🔐 Passphrase PIN XORed with ECDH secret — dual-factor key hardening active');
     }
 
-   
     const rawImport = await crypto.subtle.importKey('raw', keyMaterial, 'HKDF', false, ['deriveKey']);
     const aesKey = await crypto.subtle.deriveKey(
         { name: 'HKDF', hash: 'SHA-256', salt: new TextEncoder().encode('emit-v3'), info: new ArrayBuffer(0) },
@@ -130,7 +127,6 @@ async function loadKeyIntoWorker(aesKey) {
 
 initEncryptWorker();
 auditLog('🚀 emit initialised — all crypto runs client-side');
-
 
 const configuration = {
     iceServers: [
@@ -180,7 +176,6 @@ ui.inputs.joinSecret.addEventListener('keypress', (e) => {
     }
 });
 
-
 ui.buttons.destroyConfirm.addEventListener('click', () => {
     socket.emit('peer-destroy-request', signalingId);
     ui.panels.destroyModal.style.display = 'none';
@@ -188,13 +183,12 @@ ui.buttons.destroyConfirm.addEventListener('click', () => {
 });
 
 socket.on('peer-destroy-request', () => {
-   
+
     const textEl = document.getElementById('destroy-request-text');
     if (textEl) textEl.textContent = "Your peer has requested to destroy this workspace permanently. Do you agree?";
     ui.buttons.destroyConfirm.textContent = "Agree & Destroy";
     ui.panels.destroyModal.style.display = 'flex';
-    
-   
+
     const originalListener = ui.buttons.destroyConfirm.onclick; 
     ui.buttons.destroyConfirm.onclick = () => {
         performWipe();
@@ -217,7 +211,7 @@ function performWipe() {
     document.getElementById('transfers-container').innerHTML = '';
     ui.panels.destroyModal.style.display = 'none';
     ui.panels.leaveModal.style.display = 'none';
-    
+
     showScreen('room');
     updateConnectionStatus('disconnected', 'Offline');
 }
@@ -251,15 +245,13 @@ ui.buttons.leaveConfirm.addEventListener('click', () => {
 
 async function joinRoom(idParam, secretParam) {
     performWipe();
-   
+
     let id = typeof idParam === 'string' ? idParam : null;
-    
-   
+
     if (!id && ui.inputs.roomId) {
         id = ui.inputs.roomId.value.trim();
     }
-    
-   
+
     if (!id || id === "") {
         const urlParams = new URLSearchParams(window.location.search);
         id = urlParams.get('workspace');
@@ -274,29 +266,27 @@ async function joinRoom(idParam, secretParam) {
     if (secret === undefined && ui.inputs.joinSecret) {
         secret = ui.inputs.joinSecret.value.trim();
     }
-    
+
     const rawId = id;
     const finalId = id + (secret ? ":" + secret : "");
 
-   
     id = id.toUpperCase().replace(/[^A-Z0-9-]/g, '');
     if (id.length === 8 && !id.includes('-')) {
         id = id.slice(0, 4) + '-' + id.slice(4, 8);
     }
-    
+
     if (id.length < 9) {
         showToast('Invalid Code', 'Code is too short (e.g. A8B2-X9M4).', 'error');
         return;
     }
 
-   
     const isSecure = window.isSecureContext && window.crypto && window.crypto.subtle;
-    
+
     if (!isSecure) {
         showToast('Dev Mode (HTTP)', 'Encryption disabled due to insecure context (HTTP). Direct data transfer only.', 'warning');
         auditLog('⚠️ INSECURE CONTEXT: Web Crypto API is unavailable. Proceeding with plaintext handshake for dev/local testing.');
     } else {
-       
+
         try {
             await generateECDHKeyPair();
         } catch (err) {
@@ -312,7 +302,7 @@ async function joinRoom(idParam, secretParam) {
     if (ui.text.displayRoomCode) ui.text.displayRoomCode.textContent = roomId;
 
     const myPublicJwk = isSecure ? await crypto.subtle.exportKey('jwk', myECDHKeyPair.publicKey) : { insecure: true };
-    
+
     window._pendingPassphrase = secret || '';
 
     const inviteSuffix = secret ? `&guard=${encodeURIComponent(secret)}` : '';
@@ -332,7 +322,7 @@ async function joinRoom(idParam, secretParam) {
 
     socket.emit('join-room', signalingId);
     socket.emit('ecdh-public-key', myPublicJwk, signalingId);
-    
+
     showScreen('transfer');
     updateConnectionStatus('waiting');
 }
@@ -374,14 +364,13 @@ socket.on('peer-destroyed-room', () => {
 socket.on('ecdh-public-key', async (theirPublicJwk) => {
     if (!myECDHKeyPair) return;
     auditLog('📩 Peer ECDH public key received — computing shared secret locally');
-    
+
     const passphrase = window._pendingPassphrase || '';
     zeroTrustKey = await deriveSharedKey(theirPublicJwk, passphrase);
     window._pendingPassphrase = null;
 
     await loadKeyIntoWorker(zeroTrustKey);
 
-   
     const badge = document.getElementById('e2e-badge');
     if (badge) {
         badge.style.display = 'flex';
@@ -397,14 +386,14 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 socket.on('user-joined', async (userId) => {
-   
+
     console.log('Peer joined, creating offer');
     setupPeerConnection();
-    
+
     try {
-       
+
         setupDataChannel(peerConnection.createDataChannel('fileTransfer'));
-        
+
         let offer = await peerConnection.createOffer();
         offer = { type: offer.type, sdp: mangleSDP(offer.sdp) };
         await peerConnection.setLocalDescription(offer);
@@ -417,8 +406,7 @@ socket.on('user-joined', async (userId) => {
 socket.on('offer', async (offer, userId) => {
     console.log('Received offer, creating answer');
     setupPeerConnection();
-    
-   
+
     try {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
         let answer = await peerConnection.createAnswer();
@@ -451,15 +439,15 @@ socket.on('ice-candidate', async (candidate, userId) => {
 
 function setupPeerConnection() {
     if (peerConnection) peerConnection.close();
-    
+
     peerConnection = new RTCPeerConnection(configuration);
-    
+
     peerConnection.onicecandidate = (e) => {
         if (e.candidate) {
             socket.emit('ice-candidate', e.candidate, signalingId);
         }
     };
-    
+
     peerConnection.onconnectionstatechange = () => {
         const state = peerConnection.connectionState;
         auditLog(`🔗 WebRTC connection state → ${state}`);
@@ -467,7 +455,7 @@ function setupPeerConnection() {
             updateConnectionStatus('connected');
             showToast('Peer Connected', 'Secure P2P tunnel established.', 'success');
             if (typeof playProceduralSound === 'function') playProceduralSound('chime');
-           
+
             if (myECDHKeyPair) {
                 crypto.subtle.exportKey('jwk', myECDHKeyPair.publicKey).then(jwk => {
                     socket.emit('ecdh-public-key', jwk, signalingId);
@@ -478,8 +466,7 @@ function setupPeerConnection() {
             showToast('Peer Disconnected', 'The other device left the workspace.', 'error');
         }
     };
-    
-   
+
     peerConnection.ondatachannel = (e) => {
         setupDataChannel(e.channel);
     };
@@ -519,18 +506,17 @@ function mangleSDP(sdp) {
 
 function setupDataChannel(channel) {
     dataChannel = channel;
-   
+
     dataChannel.binaryType = 'arraybuffer';
-    
+
     dataChannel.onopen = () => {
         console.log('Data channel open');
     };
-    
+
     dataChannel.onclose = () => {
         console.log('Data channel closed');
     };
-    
-   
+
     let pendingChunkHeader = null;
 
     dataChannel.onmessage = async (e) => {
@@ -538,7 +524,7 @@ function setupDataChannel(channel) {
             const msg = JSON.parse(e.data);
 
             if (msg.type === 'file-meta-envelope') {
-               
+
                 try {
                     const meta = await decryptMeta(msg.payload);
                     currentFileMeta = meta;
@@ -552,13 +538,13 @@ function setupDataChannel(channel) {
                     showToast('Decryption Error', 'Could not decrypt file metadata. Wrong password?', 'error');
                 }
             } else if (msg.type === 'chunk-header') {
-               
+
                 pendingChunkHeader = msg;
             } else if (msg.type === 'file-done') {
                 finalizeDownload(msg.id);
             }
         } else {
-           
+
             if (!pendingChunkHeader || !currentFileMeta) return;
             const { fileId, chunkIndex } = pendingChunkHeader;
             pendingChunkHeader = null;
@@ -569,7 +555,7 @@ function setupDataChannel(channel) {
 
             if (zeroTrustKey) {
                 try {
-                   
+
                     const buf = e.data instanceof ArrayBuffer ? e.data : await e.data.arrayBuffer();
                     const iv = new Uint8Array(buf, 0, 12);
                     const cipher = buf.slice(12);
@@ -648,7 +634,7 @@ ui.dropZone.addEventListener('drop', async (e) => {
 
 function handleFiles(files) {
     if (!dataChannel || dataChannel.readyState !== 'open') {
-       
+
         const file = files[0];
         const allFiles = Array.from(files);
         const modal = document.getElementById('drop-modal');
@@ -715,8 +701,6 @@ function handleFiles(files) {
             }
         };
 
-
-       
         modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
         return;
     }
@@ -756,14 +740,14 @@ async function sendFile(file) {
         const state = activeSends[fileId];
         if (!state || state.paused) return;
         const totalChunks = Math.ceil(state.file.size / CHUNK_SIZE);
-        
+
         while (pipeline.length < MAX_PIPELINE && state.chunkIndex < totalChunks) {
             const idx = state.chunkIndex++;
             const start = idx * CHUNK_SIZE;
             const end = Math.min(start + CHUNK_SIZE, state.file.size);
             const blobChunk = state.file.slice(start, end);
             const rawChunk = await blobChunk.arrayBuffer();
-            
+
             if (useEncryption && encryptWorker) {
                 pipeline.push(workerEncrypt(fileId, idx, rawChunk).then(p => ({ idx, p })));
             } else {
@@ -803,7 +787,7 @@ async function sendFile(file) {
                 sendStats.lastTime = now;
                 sendStats.lastBytes = bytesDone;
             }
-            
+
             if (idx + 1 === totalChunks) {
                 dataChannel.send(JSON.stringify({ type: 'file-done', id: fileId }));
                 updateTransferProgress(fileId, 100, 'Sent Successfully', '', '');
@@ -818,22 +802,18 @@ async function sendFile(file) {
     sendNextChunk();
 }
 
-
-
 function finalizeDownload(fileId) {
     const meta = currentFileMeta;
     if (!meta || meta.id !== fileId) return;
 
     socket.emit('record-stat', { bytes: meta.size });
 
-   
     const orderedChunks = receiveBuffer[fileId].filter(Boolean);
     const blob = new Blob(orderedChunks, { type: meta.mime || 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
 
     if (typeof playProceduralSound === 'function') playProceduralSound('pop');
 
-   
     const thumbEl = document.getElementById(`thumb-${meta.id}`);
     if (thumbEl) {
         const ext = meta.name.split('.').pop().toLowerCase();
@@ -856,7 +836,6 @@ function finalizeDownload(fileId) {
     updateTransferProgress(meta.id, 100, 'Ready to Save', '', '');
     showToast('File Received', `${meta.name} is ready to save.`, 'success');
 
-   
     delete receiveBuffer[fileId];
     delete receivedChunks[fileId];
     currentFileMeta = null;

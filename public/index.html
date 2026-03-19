@@ -4,26 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>emit | Secure P2P Workspace</title>
-    
-    
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    
+
     <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="styles.css">
-    
-    
+
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
 
-    
     <div id="fullscreen-drop-overlay" class="fullscreen-drop-overlay">
         <div class="fullscreen-drop-content">
             <i class="fa-solid fa-cloud-arrow-up fullscreen-drop-icon"></i>
@@ -31,11 +27,10 @@
         </div>
     </div>
 
-    
     <header class="site-header">
         <div class="logo">emit</div>
         <nav class="nav-links">
-            
+
             <div id="e2e-badge" class="e2e-badge" style="display:none;">
                 <i class="fa-solid fa-lock"></i>
                 <span>E2E Encrypted</span>
@@ -51,11 +46,9 @@
         </nav>
     </header>
 
-    
     <main id="screen-room" class="screen active">
         <div class="hero-split">
-            
-            
+
             <div class="hero-text-side">
                 <span class="eyebrow">SECURE TRANSFER</span>
                 <h1 class="hero-title">emit</h1>
@@ -70,11 +63,9 @@
                 </div>
             </div>
 
-            
             <div class="hero-card-side">
                 <div class="sleek-card">
-                    
-                    
+
                     <div id="action-selection-panel" class="card-panel active">
                         <div class="card-header">
                             <div class="card-header-left">
@@ -90,7 +81,6 @@
                         </div>
                     </div>
 
-                    
                     <div id="share-workspace-panel" class="card-panel" style="display: none;">
                         <div class="card-header">
                             <div class="card-header-left">
@@ -107,7 +97,7 @@
                                 <span id="display-room-code-home">----</span>
                                 <button id="btn-copy-code-home" title="Copy"><i class="fa-regular fa-copy"></i></button>
                             </div>
-                            
+
                             <div class="custom-word-area" style="margin-top: 1.5rem; width: 100%;">
                                 <span class="form-label text-center">WORKSPACE SECRET (OPTIONAL)</span>
                                 <input type="text" id="custom-word-input" class="form-input text-center" placeholder="Secret Word" maxlength="32" autocomplete="off">
@@ -135,7 +125,7 @@
                                 <span class="form-label">Workspace Code</span>
                                 <input type="text" id="room-id-input" class="form-input" placeholder="e.g. A8B2-X9M4" autocomplete="off" maxlength="15">
                             </div>
-                            
+
                             <div style="margin-bottom: 1.25rem;">
                                 <span class="form-label">Workspace Secret (If set)</span>
                                 <input type="text" id="join-secret-input" class="form-input" placeholder="Secret Word" autocomplete="off" maxlength="32">
@@ -153,11 +143,10 @@
         </div>
     </main>
 
-    
     <main id="screen-transfer" class="screen">
         <div class="dashboard-area">
             <div class="sleek-card full-width">
-                
+
                 <div class="card-header">
                     <div class="card-header-left">
                         <div class="avatar-ring is-active"><i class="fa-solid fa-network-wired"></i></div>
@@ -171,18 +160,16 @@
                         <button id="destroy-btn" class="btn-pill btn-danger btn-sm">Destroy</button>
                     </div>
                 </div>
-                
-                
+
                 <div class="card-body dashboard-grid">
-                    
-                    
+
                     <div class="dashboard-info">
                         <div class="tiny-label">SHARE CODE</div>
                         <div class="box-sleek">
                             <span id="display-room-code" class="mono-text">----</span>
                             <button id="btn-copy-code" class="btn-icon"><i class="fa-solid fa-copy"></i></button>
                         </div>
-                        
+
                         <div class="tiny-label" style="margin-top:2rem;">DIRECT LINK</div>
                         <div class="box-sleek">
                             <span class="prefix" id="url-prefix">emit/</span>
@@ -193,7 +180,6 @@
                         <div id="qrcode" class="qr-box"></div>
                     </div>
 
-                    
                     <div class="dashboard-action">
                         <div class="dropzone" id="drop-zone">
                             <input type="file" id="file-input" hidden multiple>
@@ -208,13 +194,12 @@
                     </div>
                 </div>
 
-                
                 <div class="transfers-section">
                     <div class="transfers-header">
                         <span class="tiny-label">ACTIVE TRANSFERS</span>
                     </div>
                     <ul id="transfers-container" class="transfers-list">
-                        
+
                     </ul>
                 </div>
 
@@ -222,7 +207,6 @@
         </div>
     </main>
 
-    
     <div id="audit-console" class="audit-console">
         <div class="audit-header">
             <div class="audit-title">
@@ -233,11 +217,10 @@
         </div>
         <div class="audit-subtitle">Real-time log of every encryption step. All crypto runs in your browser — nothing sensitive is shown here except to you.</div>
         <div id="audit-log-body" class="audit-log-body">
-            
+
         </div>
     </div>
 
-    
     <div id="drop-modal" class="drop-modal-overlay" style="display:none;">
         <div class="drop-modal">
             <div class="drop-modal-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
@@ -276,7 +259,6 @@
         </div>
     </div>
 
-    
     <footer class="site-footer">
         <div class="footer-inner">
             <div class="footer-row">
@@ -302,16 +284,14 @@
         </div>
     </footer>
 
-    
     <div id="toast-container" class="toast-container"></div>
 
-    
     <div id="leave-modal" class="drop-modal-overlay" style="display:none;">
         <div class="drop-modal">
             <div class="drop-modal-icon"><i class="fa-solid fa-person-walking-arrow-right"></i></div>
             <h2 class="drop-modal-title">Leave Workspace</h2>
             <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--text-secondary);">Select how you want to handle your files upon exiting.</div>
-            
+
             <div class="exit-strategies">
                 <label class="exit-strategy-card">
                     <input type="radio" name="exit-strategy" value="immediate" checked>
@@ -343,7 +323,6 @@
         </div>
     </div>
 
-    
     <div id="destroy-modal" class="drop-modal-overlay" style="display:none;">
         <div class="drop-modal">
             <div class="drop-modal-icon" style="color: var(--accent-warning);"><i class="fa-solid fa-radiation"></i></div>
@@ -358,7 +337,6 @@
         </div>
     </div>
 
-    
     <script src="hosted-drop.js"></script>
     <script src="app.js" defer></script>
     <script src="webrtc.js" defer></script>
