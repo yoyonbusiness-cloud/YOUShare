@@ -112,7 +112,7 @@ async function deriveSharedKey(theirPublicKeyJwk, passphrase = '') {
    
     const rawImport = await crypto.subtle.importKey('raw', keyMaterial, 'HKDF', false, ['deriveKey']);
     const aesKey = await crypto.subtle.deriveKey(
-        { name: 'HKDF', hash: 'SHA-256', salt: new TextEncoder().encode('YouShare-v3'), info: new ArrayBuffer(0) },
+        { name: 'HKDF', hash: 'SHA-256', salt: new TextEncoder().encode('emit-v3'), info: new ArrayBuffer(0) },
         rawImport,
         { name: 'AES-GCM', length: 256 },
         true,
@@ -129,7 +129,7 @@ async function loadKeyIntoWorker(aesKey) {
 }
 
 initEncryptWorker();
-auditLog('🚀 YouShare initialised — all crypto runs client-side');
+auditLog('🚀 emit initialised — all crypto runs client-side');
 
 
 const configuration = {

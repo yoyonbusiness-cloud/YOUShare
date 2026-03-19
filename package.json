@@ -1,20 +1,22 @@
 {
-  "name": "fileshareapp",
+  "name": "emit",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Hyper-speed, zero-knowledge, peer-to-peer file sharing.",
+  "author": "Yoyon",
+  "main": "server.js",
   "scripts": {
+    "start": "node server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
-  "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
     "express": "^5.2.1",
-    "isomorphic-git": "^1.37.4",
     "multer": "^2.1.1",
     "puppeteer": "^24.39.0",
     "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "isomorphic-git": "^1.37.4"
   }
 }

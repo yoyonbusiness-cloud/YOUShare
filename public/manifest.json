@@ -1,6 +1,6 @@
 {
-    "name": "YouShare - Secure P2P",
-    "short_name": "YouShare",
+    "name": "emit - Secure P2P",
+    "short_name": "emit",
     "description": "Zero-trust encrypted P2P workspace for file sharing.",
     "start_url": "/?mode=pwa",
     "display": "standalone",
