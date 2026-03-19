@@ -1,4 +1,4 @@
-# emit
+# Emit
 
 **Hyper-speed, zero-knowledge, peer-to-peer file sharing. No accounts. No servers. No limits.**
 
