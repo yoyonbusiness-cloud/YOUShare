@@ -1,0 +1,17 @@
+{
+    "name": "emit - Secure P2P",
+    "short_name": "emit",
+    "description": "Zero-trust encrypted P2P workspace for file sharing.",
+    "start_url": "/?mode=pwa",
+    "display": "standalone",
+    "background_color": "#e0e8f0",
+    "theme_color": "#f4f7f9",
+    "icons": [
+        {
+            "src": "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/svgs/solid/bolt.svg",
+            "sizes": "192x192 512x512",
+            "type": "image/svg+xml",
+            "purpose": "any maskable"
+        }
+    ]
+}
