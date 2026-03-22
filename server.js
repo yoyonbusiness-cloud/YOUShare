@@ -86,13 +86,13 @@ function startServer(port = 3000) {
     });
 
     io.on('connection', (socket) => {
-        socket.YOUShare('global-stats-updated', globalStats);
+        socket.emit('global-stats-updated', globalStats);
 
         socket.on('create-room', (rawId) => {
             const hashedId = hashId(rawId);
             const timeout = setTimeout(() => {
                 if (activeRooms.has(hashedId)) {
-                    io.to(hashedId).YOUShare('room-expired');
+                    io.to(hashedId).emit('room-expired');
                     activeRooms.delete(hashedId);
                 }
             }, ROOM_TIMEOUT_MS);
@@ -114,12 +114,12 @@ function startServer(port = 3000) {
             
             if (!room) {
                 if (!isCreator) {
-                    socket.YOUShare('room-not-found');
+                    socket.emit('room-not-found');
                     return;
                 }
                 const timeout = setTimeout(() => {
                     if (activeRooms.has(publicHash)) {
-                        io.to(activeRooms.get(publicHash).signalingId).YOUShare('room-expired');
+                        io.to(activeRooms.get(publicHash).signalingId).emit('room-expired');
                         activeRooms.delete(publicHash);
                     }
                 }, ROOM_TIMEOUT_MS);
@@ -134,7 +134,7 @@ function startServer(port = 3000) {
             }
 
             if (room.signalingId !== privateHash) {
-                socket.YOUShare('secret-mismatch');
+                socket.emit('secret-mismatch');
                 return;
             }
             
@@ -144,13 +144,13 @@ function startServer(port = 3000) {
                     oldRoom.participants = Math.max(0, oldRoom.participants - 1);
                     delete oldRoom.peers[socket.id];
                     socket.leave(socket.privateHash);
-                    io.to(oldRoom.signalingId).YOUShare('user-left', socket.id);
+                    io.to(oldRoom.signalingId).emit('user-left', socket.id);
                 }
             }
             
             if (!room.peers[socket.id]) {
                 if (room.participants >= 2) {
-                    socket.YOUShare('room-locked');
+                    socket.emit('room-locked');
                     return;
                 }
                 room.participants += 1;
@@ -171,33 +171,33 @@ function startServer(port = 3000) {
             socket.userName = metadata.name;
 
             // Send current peer list to the new joiner
-            socket.YOUShare('peer-list', Object.values(room.peers).filter(p => p.id !== socket.id));
+            socket.emit('peer-list', Object.values(room.peers).filter(p => p.id !== socket.id));
             
             // Notify others
-            socket.to(privateHash).YOUShare('user-joined', metadata);
+            socket.to(privateHash).emit('user-joined', metadata);
         });
 
         socket.on('offer', (offer, rawId, targetId) => {
             if (targetId) {
-                io.to(targetId).YOUShare('offer', offer, socket.id, socket.userName);
+                io.to(targetId).emit('offer', offer, socket.id, socket.userName);
             } else {
-                socket.to(hashId(rawId)).YOUShare('offer', offer, socket.id, socket.userName);
+                socket.to(hashId(rawId)).emit('offer', offer, socket.id, socket.userName);
             }
         });
 
         socket.on('answer', (answer, rawId, targetId) => {
             if (targetId) {
-                io.to(targetId).YOUShare('answer', answer, socket.id);
+                io.to(targetId).emit('answer', answer, socket.id);
             } else {
-                socket.to(hashId(rawId)).YOUShare('answer', answer, socket.id);
+                socket.to(hashId(rawId)).emit('answer', answer, socket.id);
             }
         });
 
         socket.on('ice-candidate', (candidate, rawId, targetId) => {
             if (targetId) {
-                io.to(targetId).YOUShare('ice-candidate', candidate, socket.id);
+                io.to(targetId).emit('ice-candidate', candidate, socket.id);
             } else {
-                socket.to(hashId(rawId)).YOUShare('ice-candidate', candidate, socket.id);
+                socket.to(hashId(rawId)).emit('ice-candidate', candidate, socket.id);
             }
         });
 
@@ -205,16 +205,16 @@ function startServer(port = 3000) {
             if (data && typeof data.bytes === 'number') {
                 globalStats.bytesTransferred += data.bytes;
                 globalStats.filesTransferred += 1;
-                io.YOUShare('global-stats-updated', globalStats);
+                io.emit('global-stats-updated', globalStats);
             }
         });
 
         socket.on('peer-destroy-request', (rawId) => {
-            socket.to(hashId(rawId)).YOUShare('peer-destroy-request');
+            socket.to(hashId(rawId)).emit('peer-destroy-request');
         });
 
         socket.on('peer-destroy-reject', (rawId) => {
-            socket.to(hashId(rawId)).YOUShare('peer-destroy-reject');
+            socket.to(hashId(rawId)).emit('peer-destroy-reject');
         });
 
         socket.on('destroy-room', (signalingId) => {
@@ -224,7 +224,7 @@ function startServer(port = 3000) {
                 const room = activeRooms.get(publicHash);
                 clearTimeout(room.timeoutId);
                 activeRooms.delete(publicHash);
-                io.to(privateHash).YOUShare('peer-destroyed-room');
+                io.to(privateHash).emit('peer-destroyed-room');
             }
         });
 
@@ -245,7 +245,7 @@ function startServer(port = 3000) {
                 clearTimeout(room.timeoutId);
                 room.timeoutId = setTimeout(() => {
                     if (activeRooms.has(publicHash)) {
-                        io.to(privateHash).YOUShare('room-expired');
+                        io.to(privateHash).emit('room-expired');
                         activeRooms.delete(publicHash);
                     }
                 }, options.duration);
@@ -253,15 +253,15 @@ function startServer(port = 3000) {
             } else if (room.participants <= 0 || options.strategy === 'immediate') {
                 clearTimeout(room.timeoutId);
                 activeRooms.delete(publicHash);
-                io.to(privateHash).YOUShare('peer-destroyed-room');
+                io.to(privateHash).emit('peer-destroyed-room');
             }
         });
 
         socket.on('ecdh-public-key', (jwkPublicKey, rawId, targetId) => {
             if (targetId) {
-                io.to(targetId).YOUShare('ecdh-public-key', jwkPublicKey, socket.id);
+                io.to(targetId).emit('ecdh-public-key', jwkPublicKey, socket.id);
             } else {
-                socket.to(hashId(rawId)).YOUShare('ecdh-public-key', jwkPublicKey, socket.id);
+                socket.to(hashId(rawId)).emit('ecdh-public-key', jwkPublicKey, socket.id);
             }
         });
         socket.on('disconnect', () => {
@@ -270,7 +270,7 @@ function startServer(port = 3000) {
                 room.participants = Math.max(0, room.participants - 1);
                 delete room.peers[socket.id];
                 
-                io.to(room.signalingId).YOUShare('user-left', socket.id);
+                io.to(room.signalingId).emit('user-left', socket.id);
 
                 if (room.participants <= 0) {
                     clearTimeout(room.timeoutId);
