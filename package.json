@@ -1,0 +1,22 @@
+{
+  "name": "YOUShare",
+  "version": "1.0.0",
+  "description": "Hyper-speed, zero-knowledge, peer-to-peer file sharing.",
+  "author": "Yoyon",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"No tests defined\" && exit 0"
+  },
+  "keywords": [],
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1",
+    "multer": "^2.1.1",
+    "puppeteer": "^24.39.0",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "isomorphic-git": "^1.37.4"
+  }
+}

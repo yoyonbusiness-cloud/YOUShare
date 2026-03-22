@@ -117,7 +117,7 @@ async function deriveSharedKey(theirPublicKeyJwk, passphrase = '') {
 
     const rawImport = await crypto.subtle.importKey('raw', keyMaterial, 'HKDF', false, ['deriveKey']);
     const aesKey = await crypto.subtle.deriveKey(
-        { name: 'HKDF', hash: 'SHA-256', salt: new TextEncoder().encode('emit-v3'), info: new ArrayBuffer(0) },
+        { name: 'HKDF', hash: 'SHA-256', salt: new TextEncoder().encode('YOUShare-v3'), info: new ArrayBuffer(0) },
         rawImport,
         { name: 'AES-GCM', length: 256 },
         true,
@@ -134,7 +134,7 @@ async function loadKeyIntoWorker(aesKey) {
 }
 
 initEncryptWorker();
-auditLog('emit initialised — all crypto runs client-side');
+auditLog('YOUShare initialised — all crypto runs client-side');
 
 const configuration = {
     iceServers: [
@@ -198,7 +198,7 @@ if (ui.buttons.join) {
 }
 
 function sendDestroyRequest() {
-    socket.emit('peer-destroy-request', signalingId);
+    socket.YOUShare('peer-destroy-request', signalingId);
     ui.panels.destroyModal.style.display = 'none';
     showToast('Request Sent', 'Waiting for peer to agree to destruction...', 'info');
 }
@@ -216,11 +216,11 @@ socket.on('peer-destroy-request', () => {
 
     ui.buttons.destroyConfirm.onclick = () => {
         performWipe();
-        socket.emit('destroy-room', signalingId);
+        socket.YOUShare('destroy-room', signalingId);
     };
 
     ui.buttons.destroyCancel.onclick = () => {
-        socket.emit('peer-destroy-reject', signalingId);
+        socket.YOUShare('peer-destroy-reject', signalingId);
         ui.panels.destroyModal.style.display = 'none';
         
         ui.buttons.destroyCancel.textContent = "Cancel";
@@ -355,14 +355,14 @@ ui.buttons.leaveConfirm.addEventListener('click', () => {
 
     if (strategy === 'immediate') {
         performWipe();
-        socket.emit('leave-room', signalingId, { strategy: 'immediate' });
+        socket.YOUShare('leave-room', signalingId, { strategy: 'immediate' });
     } else if (strategy === 'peer') {
         showToast('Standby Mode', 'Connection closed, but files will stay hosted until peer exits.', 'info');
-        socket.emit('leave-room', signalingId, { strategy: 'on-peer-exit' });
+        socket.YOUShare('leave-room', signalingId, { strategy: 'on-peer-exit' });
         performWipe();
     } else if (strategy === 'timer') {
         showToast('Self-Destruct Armed', `This workspace will wipe in ${timerMin} minutes.`, 'warning');
-        socket.emit('leave-room', signalingId, { strategy: 'timer', duration: timerMin * 60 * 1000 });
+        socket.YOUShare('leave-room', signalingId, { strategy: 'timer', duration: timerMin * 60 * 1000 });
         performWipe();
     }
 });
@@ -436,7 +436,7 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
     if (secret) localStorage.setItem('ys_guard', secret);
 
     peerId = socket.id;
-    socket.emit('join-room', signalingId, isCreator);
+    socket.YOUShare('join-room', signalingId, isCreator);
     
     showScreen('transfer');
     updateConnectionStatus('waiting');
@@ -575,7 +575,7 @@ async function initiateMeshOffer(targetId) {
         let offer = await pc.createOffer();
         offer = { type: offer.type, sdp: mangleSDP(offer.sdp) };
         await pc.setLocalDescription(offer);
-        socket.emit('offer', offer, signalingId, targetId);
+        socket.YOUShare('offer', offer, signalingId, targetId);
     } catch (e) {
         console.error(`Error creating offer for ${targetId}`, e);
     }
@@ -602,7 +602,7 @@ socket.on('offer', async (offer, senderId, senderName) => {
         let answer = await pc.createAnswer();
         answer = { type: answer.type, sdp: mangleSDP(answer.sdp) };
         await pc.setLocalDescription(answer);
-        socket.emit('answer', answer, signalingId, senderId);
+        socket.YOUShare('answer', answer, signalingId, senderId);
     } catch (e) {
         console.error(`Error handling offer from ${senderId}`, e);
     }
@@ -669,7 +669,7 @@ function setupPeerConnection(targetId) {
 
     pc.onicecandidate = (e) => {
         if (e.candidate) {
-            socket.emit('ice-candidate', e.candidate, signalingId, targetId);
+            socket.YOUShare('ice-candidate', e.candidate, signalingId, targetId);
         }
     };
 
@@ -684,7 +684,7 @@ function setupPeerConnection(targetId) {
             updateConnectionStatus('connected');
             if (myECDHKeyPair) {
                 crypto.subtle.exportKey('jwk', myECDHKeyPair.publicKey).then(jwk => {
-                    socket.emit('ecdh-public-key', jwk, signalingId, targetId);
+                    socket.YOUShare('ecdh-public-key', jwk, signalingId, targetId);
                 });
             }
         }
@@ -1164,7 +1164,7 @@ function finalizeDownload(fileId) {
     const meta = activeReceives[fileId];
     if (!meta) return;
 
-    socket.emit('record-stat', { bytes: meta.size });
+    socket.YOUShare('record-stat', { bytes: meta.size });
 
     const orderedChunks = receiveBuffer[fileId].filter(Boolean);
     const blob = new Blob(orderedChunks, { type: meta.mime || 'application/octet-stream' });
@@ -1241,6 +1241,6 @@ socket.on('global-stats-updated', (stats) => {
 
 window.addEventListener('beforeunload', () => {
     if (typeof signalingId !== 'undefined' && signalingId && typeof socket !== 'undefined') {
-        socket.emit('leave-room', signalingId, { strategy: 'immediate' });
+        socket.YOUShare('leave-room', signalingId, { strategy: 'immediate' });
     }
 });
