@@ -1,4 +1,4 @@
-# YOUShare
+# EMIT
 
 **Private, peer-to-peer file sharing. No servers, no accounts, no trackers.**
 
