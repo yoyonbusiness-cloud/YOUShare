@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EmitHub — Patch Notes</title>
+    <meta name="description" content="What's new in EmitHub — Keyboard shortcuts, chunked resume, speed graphs, auto-destroy vaults, stealth mode metadata stripping, themes, compact mode, keyboard navigation, and nicknames.">
+    <link rel="icon" type="image/png" href="favicon.png">
+
+    <script>
+        (function() {
+            const theme = localStorage.getItem('emit-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+            background: var(--bg-base);
+            background-image: radial-gradient(ellipse 80% 50% at 50% -10%, var(--bg-grad-center), transparent);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .pn-nav {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            background: rgba(3,3,5,0.75);
+            border-bottom: 1px solid var(--card-border);
+            padding: 0 2rem;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        [data-theme="light"] .pn-nav {
+            background: rgba(248,250,252,0.85);
+        }
+
+        .pn-logo {
+            font-size: 1.25rem;
+            font-weight: 900;
+            color: var(--text-pure);
+            letter-spacing: -0.04em;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .pn-nav-right {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .pn-hero {
+            max-width: 860px;
+            margin: 0 auto;
+            padding: 5rem 2rem 3rem;
+            text-align: center;
+        }
+
+        .pn-version-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.35rem 1rem;
+            border-radius: 999px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.25);
+            color: #10b981;
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            margin-bottom: 1.75rem;
+        }
+
+        .pn-hero-title {
+            font-size: clamp(2.4rem, 6vw, 4rem);
+            font-weight: 900;
+            color: var(--text-pure);
+            letter-spacing: -0.04em;
+            line-height: 1.08;
+            margin-bottom: 1.25rem;
+        }
+
+        .pn-hero-title span {
+            background: linear-gradient(135deg, #10b981, #06d6a0, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .pn-hero-sub {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            line-height: 1.7;
+            max-width: 560px;
+            margin: 0 auto 2.5rem;
+        }
+
+        .pn-date-line {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.6rem;
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .pn-date-line i { font-size: 0.75rem; }
+
+        .pn-divider {
+            max-width: 860px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            display: flex;
+            align-items: center;
+            gap: 1.25rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .pn-divider-line {
+            flex: 1;
+            height: 1px;
+            background: var(--card-border);
+        }
+
+        .pn-divider-label {
+            font-size: 0.7rem;
+            font-weight: 800;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        .pn-grid {
+            max-width: 860px;
+            margin: 0 auto;
+            padding: 0 2rem 6rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        @media (max-width: 640px) {
+            .pn-grid { grid-template-columns: 1fr; }
+        }
+
+        .pn-card {
+            background: var(--card-surface);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 1.6rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.85rem;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .pn-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            background: radial-gradient(circle at top left, var(--card-glow, transparent) 0%, transparent 65%);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .pn-card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(255,255,255,0.1);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+        }
+
+        .pn-card:hover::before { opacity: 1; }
+
+        .pn-card--wide {
+            grid-column: span 2;
+        }
+
+        @media (max-width: 640px) {
+            .pn-card--wide { grid-column: span 1; }
+        }
+
+        .pn-card--green  { --card-glow: rgba(16,185,129,0.08); }
+        .pn-card--blue   { --card-glow: rgba(59,130,246,0.08); }
+        .pn-card--purple { --card-glow: rgba(139,92,246,0.08); }
+        .pn-card--amber  { --card-glow: rgba(251,191,36,0.08); }
+        .pn-card--rose   { --card-glow: rgba(244,63,94,0.08); }
+        .pn-card--cyan   { --card-glow: rgba(6,182,212,0.08); }
+        .pn-card--indigo { --card-glow: rgba(99,102,241,0.08); }
+        .pn-card--slate  { --card-glow: rgba(148,163,184,0.08); }
+
+        .pn-card-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 13px;
+            display: grid;
+            place-items: center;
+            font-size: 1.1rem;
+            flex-shrink: 0;
+        }
+
+        .pn-card-icon--green  { background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.2); }
+        .pn-card-icon--blue   { background: rgba(59,130,246,0.12); color: #60a5fa; border: 1px solid rgba(59,130,246,0.2); }
+        .pn-card-icon--purple { background: rgba(139,92,246,0.12); color: #a78bfa; border: 1px solid rgba(139,92,246,0.2); }
+        .pn-card-icon--amber  { background: rgba(251,191,36,0.12); color: #fbbf24; border: 1px solid rgba(251,191,36,0.2); }
+        .pn-card-icon--rose   { background: rgba(244,63,94,0.12); color: #fb7185; border: 1px solid rgba(244,63,94,0.2); }
+        .pn-card-icon--cyan   { background: rgba(6,182,212,0.12); color: #22d3ee; border: 1px solid rgba(6,182,212,0.2); }
+        .pn-card-icon--indigo { background: rgba(99,102,241,0.12); color: #818cf8; border: 1px solid rgba(99,102,241,0.2); }
+        .pn-card-icon--slate  { background: rgba(148,163,184,0.12); color: #94a3b8; border: 1px solid rgba(148,163,184,0.2); }
+
+        .pn-card-head {
+            display: flex;
+            align-items: center;
+            gap: 0.9rem;
+        }
+
+        .pn-card-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 0.2rem;
+        }
+
+        .pn-card-title {
+            font-size: 0.98rem;
+            font-weight: 800;
+            color: var(--text-pure);
+            letter-spacing: -0.01em;
+            line-height: 1.2;
+        }
+
+        .pn-card-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            font-size: 0.62rem;
+            font-weight: 800;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            padding: 0.18rem 0.6rem;
+            border-radius: 999px;
+        }
+
+        .pn-card-tag--new     { background: rgba(16,185,129,0.12); color: #10b981; }
+        .pn-card-tag--power   { background: rgba(139,92,246,0.12); color: #a78bfa; }
+        .pn-card-tag--ux      { background: rgba(59,130,246,0.12); color: #60a5fa; }
+        .pn-card-tag--privacy { background: rgba(251,191,36,0.12); color: #fbbf24; }
+        .pn-card-tag--perf    { background: rgba(6,182,212,0.12); color: #22d3ee; }
+
+        .pn-card-desc {
+            font-size: 0.86rem;
+            color: var(--text-secondary);
+            line-height: 1.65;
+        }
+
+        .pn-shortcuts {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.25rem;
+        }
+
+        .pn-shortcut {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0.85rem;
+            background: var(--card-elevated);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .pn-shortcut kbd {
+            font-family: 'JetBrains Mono', Consolas, monospace;
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: var(--text-pure);
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 5px;
+            padding: 0.1rem 0.4rem;
+            letter-spacing: 0;
+        }
+
+        [data-theme="light"] .pn-shortcut kbd {
+            background: rgba(0,0,0,0.05);
+            border-color: rgba(0,0,0,0.12);
+            color: var(--text-pure);
+        }
+
+        .pn-swatches {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.25rem;
+            flex-wrap: wrap;
+        }
+
+        .pn-swatch {
+            width: 32px;
+            height: 32px;
+            border-radius: 9px;
+            border: 2px solid rgba(255,255,255,0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .pn-swatch::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: inherit;
+        }
+
+        .pn-swatch--dark     { background: linear-gradient(135deg, #030305, #141416); }
+        .pn-swatch--light    { background: linear-gradient(135deg, #f8fafc, #e2e8f0); border-color: rgba(0,0,0,0.12); }
+        .pn-swatch--midnight { background: linear-gradient(135deg, #0a1628, #1a3a52); }
+        .pn-swatch--forest   { background: linear-gradient(135deg, #0d1f14, #1a3326); }
+        .pn-swatch--red      { background: linear-gradient(135deg, #2a0808, #450d0d); }
+        .pn-swatch--purple   { background: linear-gradient(135deg, #1a0b2e, #2d1454); }
+        .pn-swatch--custom   {
+            background: conic-gradient(#ff6b6b, #feca57, #48dbfb, #ff9ff3, #ff6b6b);
+        }
+
+        .pn-graph-demo {
+            height: 64px;
+            background: var(--card-elevated);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+            margin-top: 0.25rem;
+        }
+
+        .pn-graph-demo svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .pn-graph-label {
+            position: absolute;
+            top: 8px;
+            right: 10px;
+            font-size: 0.65rem;
+            font-weight: 800;
+            color: #10b981;
+            letter-spacing: 0.05em;
+        }
+
+        .pn-resume-bar {
+            height: 6px;
+            background: var(--card-elevated);
+            border-radius: 999px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+
+        .pn-resume-fill {
+            height: 100%;
+            width: 62%;
+            background: linear-gradient(90deg, #10b981, #06d6a0);
+            border-radius: 999px;
+            position: relative;
+        }
+
+        .pn-resume-fill::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 10px;
+            height: 10px;
+            background: #fff;
+            border: 2px solid #10b981;
+            border-radius: 50%;
+        }
+
+        .pn-resume-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin-top: 0.5rem;
+            font-weight: 600;
+        }
+
+        .pn-resume-meta span:last-child { color: #10b981; }
+
+        .pn-footer {
+            border-top: 1px solid var(--card-border);
+            padding: 2rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .pn-footer a {
+            color: #10b981;
+            text-decoration: none;
+            font-weight: 700;
+        }
+
+        @keyframes graph-draw {
+            from { stroke-dashoffset: 400; }
+            to   { stroke-dashoffset: 0; }
+        }
+
+        .pn-graph-path {
+            stroke-dasharray: 400;
+            stroke-dashoffset: 400;
+            animation: graph-draw 2.5s ease forwards 0.4s;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.4); }
+        }
+
+        .pn-live-dot {
+            animation: pulse-dot 1.8s ease-in-out infinite;
+        }
+
+        @keyframes strip-scan {
+            0%   { transform: translateX(-100%); }
+            100% { transform: translateX(400%); }
+        }
+
+        .pn-strip-beam {
+            position: absolute;
+            top: 0; left: 0;
+            width: 25%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(251,191,36,0.3), transparent);
+            animation: strip-scan 2.5s ease-in-out infinite;
+        }
+
+        .pn-stealth-file {
+            background: var(--card-elevated);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            padding: 0.6rem 0.9rem;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 0.25rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .pn-stealth-removed {
+            display: flex;
+            gap: 0.4rem;
+            flex-wrap: wrap;
+        }
+
+        .pn-meta-chip {
+            font-size: 0.6rem;
+            font-weight: 700;
+            padding: 0.15rem 0.5rem;
+            border-radius: 999px;
+            background: rgba(251,191,36,0.1);
+            border: 1px solid rgba(251,191,36,0.2);
+            color: #fbbf24;
+            text-decoration: line-through;
+            opacity: 0.6;
+        }
+    </style>
+</head>
+<body>
+
+<nav class="pn-nav">
+    <a class="pn-logo" href="/">emit</a>
+    <div class="pn-nav-right">
+        <select id="pn-theme-select" class="form-input" style="appearance:none; -webkit-appearance:none; background-color:var(--btn-ghost-bg); height:34px; padding:0 1.25rem; color:var(--text-primary); border:1px solid var(--btn-ghost-border); cursor:pointer; border-radius:999px; font-weight:600; font-size:0.82rem;">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="midnight-blue">Midnight</option>
+            <option value="forest-green">Forest</option>
+            <option value="deep-red">Deep Red</option>
+            <option value="purple-haze">Purple</option>
+        </select>
+        <a href="/" class="btn-pill btn-ghost btn-sm" style="padding:0.45rem 1.1rem; font-size:0.8rem; font-weight:700; text-decoration:none;">
+            <i class="fa-solid fa-arrow-left" style="font-size:0.75rem;"></i> Back to emit
+        </a>
+    </div>
+</nav>
+
+<section class="pn-hero">
+    <div class="pn-version-badge">
+        <i class="fa-solid fa-bolt"></i>
+        What's New
+    </div>
+    <h1 class="pn-hero-title">What's <span>new.</span></h1>
+    <p class="pn-hero-sub">Everything added in this update, no fluff.</p>
+    <div class="pn-date-line">
+        <i class="fa-solid fa-calendar-days"></i>
+        June 2026 · EmitHub
+    </div>
+</section>
+
+<div class="pn-divider">
+    <div class="pn-divider-line"></div>
+    <span class="pn-divider-label">Release Notes</span>
+    <div class="pn-divider-line"></div>
+</div>
+
+<div class="pn-grid">
+
+    <div class="pn-card pn-card--green">
+        <div class="pn-card-head">
+            <div class="pn-card-icon pn-card-icon--green"><i class="fa-solid fa-keyboard"></i></div>
+            <div class="pn-card-meta">
+                <div class="pn-card-title">Keyboard Shortcuts</div>
+                <span class="pn-card-tag pn-card-tag--power">Power User</span>
+            </div>
+        </div>
+        <p class="pn-card-desc">Control the app without touching your mouse. Press Ctrl+V to instantly paste and send files, and Ctrl+D to immediately destroy your workspace.</p>
+        <div class="pn-shortcuts">
+            <div class="pn-shortcut"><kbd>Ctrl</kbd><kbd>V</kbd> <span>Paste & send file</span></div>
+            <div class="pn-shortcut"><kbd>Ctrl</kbd><kbd>D</kbd> <span>Destroy workspace</span></div>
+            <div class="pn-shortcut"><kbd>Ctrl</kbd><kbd>K</kbd> <span>Command palette</span></div>
+            <div class="pn-shortcut"><kbd>Esc</kbd> <span>Close modal</span></div>
+        </div>
+    </div>
+
+    <div class="pn-card pn-card--cyan">
+        <div class="pn-card-head">
+            <div class="pn-card-icon pn-card-icon--cyan"><i class="fa-solid fa-rotate-right"></i></div>
+            <div class="pn-card-meta">
+                <div class="pn-card-title">Chunked Resume</div>
+                <span class="pn-card-tag pn-card-tag--perf">Performance</span>
+            </div>
+        </div>
+        <p class="pn-card-desc">Large file transfers survive network drops. If a transfer is interrupted halfway, it automatically resumes right where it stopped instead of starting over.</p>
+        <div class="pn-resume-bar">
+            <div class="pn-resume-fill"></div>
+        </div>
+        <div class="pn-resume-meta">
+            <span>Resumed at 62%</span>
+            <span>&rarr; Continuing from 4.1 GB</span>
+        </div>
+    </div>
+
+    <div class="pn-card pn-card--blue pn-card--wide">
+        <div class="pn-card-head">
+            <div class="pn-card-icon pn-card-icon--blue"><i class="fa-solid fa-chart-line"></i></div>
+            <div class="pn-card-meta">
+                <div class="pn-card-title">Transfer Speed Graph</div>
+                <span class="pn-card-tag pn-card-tag--ux">Visual</span>
+            </div>
+        </div>
+        <p class="pn-card-desc">Keep track of your transfer performance with a real-time speed graph showing MB/s during uploads and downloads.</p>
+        <div class="pn-graph-demo">
+            <svg viewBox="0 0 400 64" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="gfill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.25"/>
+                        <stop offset="100%" stop-color="#3b82f6" stop-opacity="0"/>
+                    </linearGradient>
+                </defs>
+                <path d="M0,50 C20,48 35,30 60,28 C85,26 100,40 130,22 C160,4 175,35 210,18 C245,1 260,38 295,20 C330,2 350,42 380,24 L400,20 L400,64 L0,64 Z" fill="url(#gfill)"/>
+                <path class="pn-graph-path" d="M0,50 C20,48 35,30 60,28 C85,26 100,40 130,22 C160,4 175,35 210,18 C245,1 260,38 295,20 C330,2 350,42 380,24 L400,20" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round"/>
+                <circle class="pn-live-dot" cx="400" cy="20" r="4" fill="#3b82f6"/>
+            </svg>
+            <div class="pn-graph-label">● LIVE · 87.4 MB/s</div>
+        </div>
+    </div>
+
+    <div class="pn-card pn-card--rose">
+        <div class="pn-card-head">
+            <div class="pn-card-icon pn-card-icon--rose"><i class="fa-solid fa-hourglass-end"></i></div>
+            <div class="pn-card-meta">
+                <div class="pn-card-title">Auto-Destroy on Inactivity</div>
+                <span class="pn-card-tag pn-card-tag--privacy">Privacy</span>
+            </div>
+        </div>
+        <p class="pn-card-desc">Automatically self-destructs the vault after a set period of inactivity. Room owners can enable, disable, or customize the timeout duration during room creation.</p>
+    </div>
+
+    <div class="pn-card pn-card--amber">
+        <div class="pn-card-head">
+            <div class="pn-card-icon pn-card-icon--amber"><i class="fa-solid fa-user-secret"></i></div>
+            <div class="pn-card-meta">
+                <div class="pn-card-title">Stealth Mode</div>
+                <span class="pn-card-tag pn-card-tag--privacy">Privacy</span>
+            </div>
+        </div>
+        <p class="pn-card-desc">Strip metadata like camera types, locations from photos, and author info from documents before sending. Choose to enable it via a simple popup when creating hosted or P2P links.</p>
+        <div class="pn-stealth-file">
+            <span><i class="fa-solid fa-image" style="margin-right:0.4rem; color:var(--text-muted);"></i>photo_2026.jpg</span>
+            <div class="pn-stealth-removed">
+                <span class="pn-meta-chip">GPS</span>
+                <span class="pn-meta-chip">Camera</span>
+                <span class="pn-meta-chip">Date</span>
+            </div>
+            <div class="pn-strip-beam"></div>
+        </div>
+    </div>
+
+    <div class="pn-card pn-card--purple">
+        <div class="pn-card-head">
+            <div class="pn-card-icon pn-card-icon--purple"><i class="fa-solid fa-palette"></i></div>
+            <div class="pn-card-meta">
+                <div class="pn-card-title">Color Themes</div>
+                <span class="pn-card-tag pn-card-tag--ux">Customization</span>
+            </div>
+        </div>
+        <p class="pn-card-desc">Personalize your interface with custom color themes tailored to your style, going beyond simple light and dark modes.</p>
+        <div class="pn-swatches">
+            <div class="pn-swatch pn-swatch--dark" title="Dark"></div>
+            <div class="pn-swatch pn-swatch--light" title="Light"></div>
+            <div class="pn-swatch pn-swatch--midnight" title="Midnight Blue"></div>
+            <div class="pn-swatch pn-swatch--forest" title="Forest Green"></div>
+            <div class="pn-swatch pn-swatch--red" title="Deep Red"></div>
+            <div class="pn-swatch pn-swatch--purple" title="Purple Haze"></div>
+            <div class="pn-swatch pn-swatch--custom" title="Custom"></div>
+        </div>
+    </div>
+
+    <div class="pn-card pn-card--slate">
+        <div class="pn-card-head">
+            <div class="pn-card-icon pn-card-icon--slate"><i class="fa-solid fa-compress"></i></div>
+            <div class="pn-card-meta">
+                <div class="pn-card-title">Compact Mode</div>
+                <span class="pn-card-tag pn-card-tag--power">Power User</span>
+            </div>
+        </div>
+        <p class="pn-card-desc">A minimal and dense layout designed for power users who want to maximize screen space and view more content at once.</p>
+    </div>
+
+    <div class="pn-card pn-card--indigo">
+        <div class="pn-card-head">
+            <div class="pn-card-icon pn-card-icon--indigo"><i class="fa-solid fa-arrows-up-down-left-right"></i></div>
+            <div class="pn-card-meta">
+                <div class="pn-card-title">Keyboard Navigation</div>
+                <span class="pn-card-tag pn-card-tag--ux">Accessibility</span>
+            </div>
+        </div>
+        <p class="pn-card-desc">Use every feature and navigate the entire application interface completely hands-free using just your keyboard.</p>
+    </div>
+
+    <div class="pn-card pn-card--green pn-card--wide">
+        <div class="pn-card-head">
+            <div class="pn-card-icon pn-card-icon--green"><i class="fa-solid fa-tag"></i></div>
+            <div class="pn-card-meta">
+                <div class="pn-card-title">Transfer Nicknames</div>
+                <span class="pn-card-tag pn-card-tag--ux">Clarity</span>
+            </div>
+        </div>
+        <p class="pn-card-desc">Give your file transfers custom names (like "Project Files") so they appear clearly in your activity panel instead of generic, confusing codes.</p>
+        <div class="pn-shortcuts" style="margin-top:0.1rem;">
+            <div class="pn-shortcut" style="opacity:0.5; text-decoration:line-through; font-size:0.75rem;">a3f9c82b1d...zip</div>
+            <div style="color:var(--text-muted); font-size:0.8rem; display:flex; align-items:center;">&rarr;</div>
+            <div class="pn-shortcut" style="border-color:rgba(16,185,129,0.3); color:#10b981;">"Project Files — Final Draft"</div>
+        </div>
+    </div>
+
+</div>
+
+<footer class="pn-footer">
+    <i class="fa-solid fa-lock" style="color:#10b981;"></i>
+    Built with zero-knowledge encryption · <a href="/">emit</a> · Open Source
+</footer>
+
+<script>
+    const sel = document.getElementById('pn-theme-select');
+    const saved = localStorage.getItem('emit-theme') || 'dark';
+    sel.value = saved;
+    sel.addEventListener('change', () => {
+        const t = sel.value;
+        document.documentElement.setAttribute('data-theme', t);
+        localStorage.setItem('emit-theme', t);
+    });
+</script>
+
+</body>
+</html>

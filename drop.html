@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+        <script>
+        (function() {
+            const p2pKeys = [
+                'ys_workspace', 'ys_guard', 'ys_is_creator',
+                'emit-p2p-rooms', 'emit-p2p-transfers',
+                'emit-persistent-id', 'emit-tab-session-id',
+                'emit-p2p-resume-state', 'emit-p2p-send-resume-state'
+            ];
+            p2pKeys.forEach(k => {
+                try { localStorage.removeItem(k); } catch(e) {}
+                try { sessionStorage.removeItem(k); } catch(e) {}
+            });
+            if (window.location.search.includes('workspace=')) {
+                const url = new URL(window.location.href);
+                url.searchParams.delete('workspace');
+                url.searchParams.delete('guard');
+                window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+            }
+        })();
+        </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EmitHub - Secure Peer-to-Peer File Sharing</title>
+    <meta name="description"
+        content="Securely download large files shared via EmitHub, a peer-to-peer file sharing tool.">
+    <link type="image/png" rel="icon" href="favicon.png">
+    <script>
+        (function() {
+            const theme = localStorage.getItem('emit-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        *,
+        *::before,
+        *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+            background: var(--bg-base);
+            background-image: radial-gradient(circle at 20% 40%, var(--bg-grad-center) 0%, var(--bg-base) 60%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            overflow-x: hidden;
+            padding: 1rem 0;
+        }
+
+        .site-header {
+            width: 100%;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: var(--card-surface);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 3rem;
+            max-width: 480px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 40px 80px rgba(0, 0, 0, 0.6);
+            margin: auto;
+            margin-top: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .filename {
+            font-size: 1.1rem;
+            font-weight: 600;
+            background: var(--card-elevated);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            padding: 0.75rem 1.25rem;
+            margin: 1.25rem 0;
+            color: var(--text-pure);
+            word-break: break-all;
+            overflow-wrap: break-word;
+        }
+
+        .meta {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .status {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin: 1.5rem 0;
+            line-height: 1.6;
+        }
+
+        .timer-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--accent-warning);
+            background: rgba(251, 191, 36, 0.1);
+            border: 1px solid rgba(251, 191, 36, 0.2);
+            padding: 0.4rem 1rem;
+            border-radius: 999px;
+            margin-top: 1.5rem;
+            transition: all 0.5s ease;
+        }
+
+        .dust-fade {
+            opacity: 0;
+            transform: scale(0.95) translateY(-10px);
+            filter: blur(10px);
+            pointer-events: none;
+        }
+
+        @keyframes sandVanish {
+            0% {
+                opacity: 1;
+                transform: scale(1) translateY(0);
+                filter: blur(0px);
+            }
+
+            100% {
+                opacity: 0;
+                transform: scale(0.8) translateY(20px);
+                filter: blur(8px) sepia(60%) contrast(150%);
+            }
+        }
+
+        .vanish-sand {
+            animation: sandVanish 1.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+            pointer-events: none !important;
+        }
+
+        .sand-particle {
+            position: fixed;
+            width: 4px;
+            height: 4px;
+            background: #a6a6a6;
+            pointer-events: none;
+            z-index: 9999;
+            animation: sandFall 1.2s ease-in forwards;
+            box-shadow: 0 0 4px #fff;
+            border-radius: 50%;
+        }
+
+        @keyframes sandFall {
+            0% {
+                transform: translate(0, 0) rotate(0deg) scale(1);
+                opacity: 1;
+            }
+
+            100% {
+                transform: translate(var(--tx), var(--ty)) rotate(var(--rot)) scale(0);
+                opacity: 0;
+            }
+        }
+
+        .btn-download {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+            background: var(--btn-white-bg);
+            color: var(--btn-white-text);
+            border: none;
+            border-radius: 999px;
+            padding: 1rem 2.5rem;
+            font-family: inherit;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 100%;
+            justify-content: center;
+            margin-top: 0.5rem;
+        }
+
+        .btn-download:hover {
+            filter: brightness(0.9);
+        }
+
+        .btn-download:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        @media (max-width: 480px) {
+            .logo {
+                position: static;
+                margin-top: 2rem;
+                margin-bottom: 2rem;
+                text-align: center;
+            }
+
+            .card {
+                padding: 1.5rem;
+                width: 94%;
+            }
+
+            body {
+                justify-content: flex-start;
+            }
+        }
+        .collection-list {
+            width: 100%;
+            margin-top: 2rem;
+            padding-top: 2rem;
+            border-top: 1px solid rgba(255,255,255,0.08);
+            text-align: left;
+        }
+        .collection-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+        }
+        .collection-title {
+            font-size: 0.85rem;
+            font-weight: 800;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+        .collection-count {
+            background: var(--accent-emerald);
+            color: #000;
+            font-size: 0.7rem;
+            font-weight: 900;
+            padding: 0.2rem 0.6rem;
+            border-radius: 20px;
+            letter-spacing: 0;
+        }
+        .collection-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.25rem;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.05);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
+            margin-bottom: 0.75rem;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .collection-item:hover {
+            background: rgba(255,255,255,0.06);
+            border-color: var(--accent-emerald);
+            transform: translateY(-2px) scale(1.01);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+        .file-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex: 1;
+            min-width: 0;
+        }
+        .file-icon {
+            width: 44px;
+            height: 44px;
+            background: rgba(var(--accent-emerald-rgb), 0.1);
+            color: var(--accent-emerald);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            font-size: 1.2rem;
+            flex-shrink: 0;
+        }
+        .file-details {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .collection-name {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-pure);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .file-meta {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 0.2rem;
+        }
+    </style>
+</head>
+
+<body>
+    <header class="site-header">
+        <div style="max-width: 14em; margin-bottom: 1.5em; position: relative;">
+            <label for="drop-expiry-select" class="form-label" style="font-weight: 700; color: var(--text-secondary); margin-bottom: 0.4em; display: block;">Link Expiry</label>
+            <select id="drop-expiry-select" class="form-input" style="appearance: none; -webkit-appearance: none; background-color: var(--btn-ghost-bg); background-image: url('data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'14\' height=\'14\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23888888\' stroke-width=\'3\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E'); background-repeat: no-repeat; background-position: right 1rem center; height: 36px; padding: 0 2.5rem 0 1.25rem; color: var(--text-primary); border: 1px solid var(--btn-ghost-border); cursor: pointer; border-radius: 999px; font-weight: 600; width: 100%; text-align-last: center;">
+                <option value="15">15 Minutes</option>
+                <option value="30">30 Minutes</option>
+                <option value="60">1 Hour</option>
+                <option value="120">2 Hours</option>
+                <option value="360">6 Hours</option>
+                <option value="720">12 Hours</option>
+                <option value="1440">24 Hours</option>
+                <option value="2880">48 Hours</option>
+            </select>
+        </div>
+        <div class="logo" onclick="window.location.href='/'">emit</div>
+        <nav class="nav-links">
+            <div style="position: relative; margin-right: 0.5rem; display: flex; align-items: center;">
+                <select id="settings-theme-select" class="form-input"
+                    style="appearance: none; -webkit-appearance: none; background-color: var(--btn-ghost-bg); background-image: url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E&quot;); background-repeat: no-repeat; background-position: right 1rem center; height: 36px; padding: 0 2.5rem 0 1.25rem; color: var(--text-primary); border: 1px solid var(--btn-ghost-border); cursor: pointer; border-radius: 999px; font-weight: 600;">
+                    <option value="dark" style="background: #030305; color: #ffffff;">Dark</option>
+                    <option value="light" style="background: #f8fafc; color: #0f172a;">Light</option>
+                    <option value="midnight-blue" style="background: #0a1628; color: #ffffff;">Midnight</option>
+                    <option value="forest-green" style="background: #0d1f14; color: #ffffff;">Forest</option>
+                    <option value="deep-red" style="background: #2a0808; color: #ffffff;">Deep Red</option>
+                    <option value="purple-haze" style="background: #1a0b2e; color: #ffffff;">Purple</option>
+                    <option value="custom" style="background: var(--bg-base); color: var(--text-pure);">Custom...
+                    </option>
+                </select>
+                <div id="custom-theme-controls"
+                    style="display: none; position: absolute; top: 120%; right: 0; padding: 1rem; background: var(--card-surface); border: 1px solid var(--card-border); border-radius: 12px; flex-direction: column; gap: 0.8rem; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 100; min-width: 220px;">
+                    <label
+                        style="display:flex; justify-content:space-between; align-items:center; font-size: 0.9rem; color: var(--text-secondary); font-weight: 600;">
+                        Background
+                        <input type="color" id="custom-bg-color" value="#121212"
+                            style="border:none; height:32px; width:44px; cursor:pointer; padding:0; background:transparent; border-radius: 6px;">
+                    </label>
+                    <label
+                        style="display:flex; justify-content:space-between; align-items:center; font-size: 0.9rem; color: var(--text-secondary); font-weight: 600;">
+                        Primary Accent
+                        <input type="color" id="custom-primary-color" value="#10b981"
+                            style="border:none; height:32px; width:44px; cursor:pointer; padding:0; background:transparent; border-radius: 6px;">
+                    </label>
+                    <label
+                        style="display:flex; justify-content:space-between; align-items:center; font-size: 0.9rem; color: var(--text-secondary); font-weight: 600;">
+                        Text Color
+                        <input type="color" id="custom-text-color" value="#ffffff"
+                            style="border:none; height:32px; width:44px; cursor:pointer; padding:0; background:transparent; border-radius: 6px;">
+                    </label>
+                    <div
+                        style="border-top: 1px solid var(--card-border); margin-top: 0.2rem; padding-top: 0.8rem; display: flex; justify-content: flex-end;">
+                        <button id="paint-mode-btn" class="btn-pill btn-ghost btn-sm"
+                            style="font-size: 0.75rem; padding: 0.4rem 0.8rem; display:flex; align-items:center; gap:0.4rem;">
+                            <i class="fa-solid fa-crosshairs"></i> Target Element
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <button id="settings-toggle-btn" class="btn-audit-toggle" title="Settings">
+                <i class="fa-solid fa-gear"></i>
+                <span>Settings</span>
+            </button>
+            <button id="audit-toggle-btn" class="btn-audit-toggle" title="Privacy Audit Console">
+                <i class="fa-solid fa-terminal"></i>
+                <span>Audit</span>
+            </button>
+            <button onclick="window.location.href='/'" class="btn-pill btn-ghost btn-sm"
+                style="padding: 0.5rem 1.25rem; font-size: 0.8rem; font-weight: 700; text-transform: none; letter-spacing: normal;">
+                Go back to emit
+            </button>
+        </nav>
+    </header>
+
+    <div id="audit-console" class="audit-console">
+        <div class="audit-header">
+            <div class="audit-title">
+                <i class="fa-solid fa-shield-halved"></i>
+                <span>Privacy Audit Console</span>
+            </div>
+            <button id="audit-close-btn" class="btn-icon"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="audit-subtitle">Real-time log of every security step. All encryption runs in your browser — nothing
+            sensitive is shown here except to you.</div>
+        <div id="audit-log-body" class="audit-log-body">
+            <div class="audit-line">> Initializing secure download session...</div>
+        </div>
+    </div>
+
+    <style>
+        .lock-icon {
+            font-size: 3.5rem;
+            color: var(--accent-emerald);
+            margin-bottom: 1.5rem;
+            margin-top: 0.5rem;
+        }
+    </style>
+    <main style="flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; padding: 2rem 0;">
+        <div class="card" style="margin: 0;">
+            <div class="lock-icon"><i class="fa-solid fa-file-shield"></i></div>
+
+            <div class="filename" id="drop-filename">Loading...</div>
+            <div class="meta" id="drop-size"></div>
+            <div class="status" id="drop-status">Verifying drop...</div>
+            <div class="status" id="drop-status">
+                <span id="drop-direction-indicator" style="margin-right:0.5em;"></span>
+                <span id="drop-status-text">Verifying drop...</span>
+            </div>
+
+            <div id="expiry-timer" class="timer-badge" style="display:none;">
+                <i class="fa-solid fa-clock"></i>
+                <span id="expiry-text">Expires in --:--</span>
+            </div>
+
+            <button id="drop-download-btn" class="btn-download">
+                <i class="fa-solid fa-arrow-down"></i>
+                Download
+            </button>
+
+            <div id="collection-list" class="collection-list" style="display:none;">
+                <div class="collection-header">
+                    <div class="collection-title">
+                        <i class="fa-solid fa-layer-group"></i>
+                        Workspace Files
+                    </div>
+                    <div id="collection-count-badge" class="collection-count">0</div>
+                </div>
+                <div id="collection-items"></div>
+            </div>
+        </div>
+    </main>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <div id="settings-modal" class="drop-modal-overlay" style="display: none;">
+        <div class="drop-modal" style="max-width: 480px;">
+            <div class="drop-modal-header" style="flex-direction: column; align-items: flex-start; gap: 0.5rem; position: relative;">
+                <h2 class="drop-modal-title" style="font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em;">Settings</h2>
+                <div style="font-size: 0.85rem; color: var(--text-secondary);">Configure your secure transfer environment.</div>
+                <button id="settings-close" class="btn-icon" style="position: absolute; top: 0; right: 0;"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div class="settings-list" style="margin-top: 2rem; display: flex; flex-direction: column; gap: 1rem;">
+                <div class="settings-item">
+                    <div class="settings-info">
+                        <div class="settings-label">Procedural Audio</div>
+                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.75rem;">Play subtle chimes for successful connections and transfers.</div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="settings-audio" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="settings-item">
+                    <div class="settings-info">
+                        <div class="settings-label">Detailed Timer</div>
+                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.75rem;">ON shows total rolling minutes (e.g. "90 min"). OFF shows largest unit only (e.g. "1 hr").</div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="settings-detailed-timer">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="drop-modal-btns" style="margin-top: 2.5rem;">
+                <button id="settings-save" class="btn-pill btn-primary w-full" style="padding: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.9rem;">Save Preferences</button>
+            </div>
+        </div>
+    </div>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <div class="footer-row">
+                <div class="footer-brand">YOYON</div>
+                <div class="footer-socials">
+                    <a href="https://github.com/yoyonbusiness-cloud/YOUShare.git" target="_blank" rel="noopener"
+                        title="GitHub" class="social-icon">
+                        <i class="fa-brands fa-github"></i>
+                    </a>
+                </div>
+            </div>
+            <div class="footer-copyright">&copy; 2026 Yoyon. All rights reserved.</div>
+        </div>
+    </footer>
+
+    <script src="shared.js"></script>
+    <script src="hosted-drop.js"></script>
+    <script>
+        const socket = io();
+        const params = new URLSearchParams(window.location.search);
+        const dropToken = params.get('t');
+        let dropDeletedShown = false;
+
+        function showDropDeletedState() {
+            if (dropDeletedShown) return;
+            dropDeletedShown = true;
+            const card = document.querySelector('.card');
+            if (window.auditLog) auditLog('⚠️ Secure drop has been removed by owner');
+            if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+            if (card) {
+                card.classList.add('vanish-sand');
+                setTimeout(() => {
+                    window.location.replace('/');
+                }, 800);
+                return;
+            }
+            window.location.replace('/');
+        }
+        window.showDropDeletedState = showDropDeletedState;
+
+        const themeSelect = document.getElementById('settings-theme-select');
+        const customThemeControls = document.getElementById('custom-theme-controls');
+        const customBgColor = document.getElementById('custom-bg-color');
+        const customPrimaryColor = document.getElementById('custom-primary-color');
+        const customTextColor = document.getElementById('custom-text-color');
+
+        const savedTheme = localStorage.getItem('emit-theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+
+        if (themeSelect) {
+            themeSelect.value = savedTheme;
+            if (savedTheme === 'custom') {
+                customThemeControls.style.display = 'flex';
+                const savedCustom = JSON.parse(localStorage.getItem('emit-custom-theme') || '{"bg":"#121212","primary":"#10b981","text":"#ffffff"}');
+                customBgColor.value = savedCustom.bg;
+                customPrimaryColor.value = savedCustom.primary;
+                customTextColor.value = savedCustom.text;
+                applyCustomTheme(savedCustom);
+            }
+
+            themeSelect.addEventListener('change', (e) => {
+                const newTheme = e.target.value;
+                document.documentElement.setAttribute('data-theme', newTheme);
+                localStorage.setItem('emit-theme', newTheme);
+
+                if (newTheme === 'custom') {
+                    customThemeControls.style.display = 'flex';
+                    updateCustomTheme();
+                    if (typeof applySavedElementPaints === 'function') applySavedElementPaints();
+                } else {
+                    customThemeControls.style.display = 'none';
+                    
+                    localStorage.removeItem('emit-element-paints');
+                    document.querySelectorAll('*').forEach(el => {
+                        el.style.removeProperty('color');
+                        el.style.removeProperty('background-color');
+                        el.style.removeProperty('border-color');
+                    });
+
+                    const propsToRemove = [
+                        '--bg-base', '--bg-grad-center', '--card-surface', '--card-elevated', '--card-border', '--audit-bg',
+                        '--accent-emerald', '--btn-white-bg', '--btn-ghost-bg', '--btn-ghost-border', '--btn-ghost-hover',
+                        '--text-pure', '--text-primary', '--text-secondary', '--btn-white-text'
+                    ];
+                    propsToRemove.forEach(prop => document.documentElement.style.removeProperty(prop));
+                }
+            });
+        }
+
+        function updateCustomTheme() {
+            const customObj = {
+                bg: customBgColor.value,
+                primary: customPrimaryColor.value,
+                text: customTextColor.value
+            };
+            localStorage.setItem('emit-custom-theme', JSON.stringify(customObj));
+            applyCustomTheme(customObj);
+        }
+
+        if (customBgColor) customBgColor.addEventListener('input', updateCustomTheme);
+        if (customPrimaryColor) customPrimaryColor.addEventListener('input', updateCustomTheme);
+        if (customTextColor) customTextColor.addEventListener('input', updateCustomTheme);
+
+        function applyCustomTheme(customObj) {
+            document.documentElement.style.setProperty('--bg-base', customObj.bg);
+            document.documentElement.style.setProperty('--bg-grad-center', adjustColor(customObj.bg, 15));
+            document.documentElement.style.setProperty('--card-surface', adjustColor(customObj.bg, 10));
+            document.documentElement.style.setProperty('--card-elevated', adjustColor(customObj.bg, 20));
+            document.documentElement.style.setProperty('--card-border', 'rgba(255,255,255,0.05)');
+            document.documentElement.style.setProperty('--audit-bg', customObj.bg);
+
+            document.documentElement.style.setProperty('--accent-emerald', customObj.primary);
+            document.documentElement.style.setProperty('--btn-white-bg', customObj.primary);
+
+            const primaryRgb = hexToRgb(customObj.primary);
+            if (primaryRgb) {
+                document.documentElement.style.setProperty('--btn-ghost-bg', `rgba(${primaryRgb}, 0.08)`);
+                document.documentElement.style.setProperty('--btn-ghost-border', `rgba(${primaryRgb}, 0.2)`);
+                document.documentElement.style.setProperty('--btn-ghost-hover', `rgba(${primaryRgb}, 0.15)`);
+            }
+
+            document.documentElement.style.setProperty('--text-pure', customObj.text);
+            document.documentElement.style.setProperty('--text-primary', adjustColor(customObj.text, -20));
+            document.documentElement.style.setProperty('--text-secondary', adjustColor(customObj.text, -60));
+            document.documentElement.style.setProperty('--btn-white-text', isDarkColor(customObj.primary) ? '#ffffff' : '#000000');
+        }
+
+        let paintModeActive = false;
+        const paintModeBtn = document.getElementById('paint-mode-btn');
+
+        if (paintModeBtn) {
+            paintModeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                paintModeActive = true;
+                document.body.style.cursor = 'crosshair';
+                customThemeControls.style.display = 'none';
+            });
+        }
+
+        let paintToolbar = null;
+
+        function createPaintToolbar() {
+            if (paintToolbar) return;
+            paintToolbar = document.createElement('div');
+            paintToolbar.className = 'paint-toolbar';
+            paintToolbar.innerHTML = `
+                <div class="paint-toolbar-text">
+                    <i class="fa-solid fa-palette"></i> Paint Mode Active
+                </div>
+                <button id="exit-paint-btn" class="btn-pill btn-white btn-sm">Done</button>
+            `;
+            document.body.appendChild(paintToolbar);
+
+            document.getElementById('exit-paint-btn').onclick = (e) => {
+                e.stopPropagation();
+                exitPaintMode();
+            };
+        }
+
+        function exitPaintMode() {
+            paintModeActive = false;
+            document.body.style.cursor = 'default';
+            if (paintToolbar) {
+                paintToolbar.remove();
+                paintToolbar = null;
+            }
+            applySavedElementPaints();
+        }
+
+        function getBestSelector(el) {
+            if (el.id) return `#${el.id}`;
+            let path = [];
+            let current = el;
+            while (current && current.tagName !== 'BODY') {
+                let selector = current.tagName.toLowerCase();
+                if (current.id) {
+                    selector += '#' + current.id;
+                    path.unshift(selector);
+                    break;
+                } else {
+                    let siblings = Array.from(current.parentNode.children).filter(e => e.tagName === current.tagName);
+                    if (siblings.length > 1) {
+                        let index = siblings.indexOf(current) + 1;
+                        selector += `:nth-of-type(${index})`;
+                    }
+                }
+                path.unshift(selector);
+                current = current.parentElement;
+            }
+            return path.join(' > ');
+        }
+
+        function saveElementPaint(selector, prop, val) {
+            const saved = JSON.parse(localStorage.getItem('emit-element-paints') || '{}');
+            if (!saved[selector]) saved[selector] = {};
+            saved[selector][prop] = val;
+            localStorage.setItem('emit-element-paints', JSON.stringify(saved));
+        }
+
+        function applySavedElementPaints() {
+            try {
+                const saved = JSON.parse(localStorage.getItem('emit-element-paints') || '{}');
+                Object.entries(saved).forEach(([selector, styles]) => {
+                    const els = document.querySelectorAll(selector);
+                    els.forEach(el => {
+                        Object.entries(styles).forEach(([prop, val]) => {
+                            el.style.setProperty(prop, val, 'important');
+                        });
+                    });
+                });
+            } catch (e) { }
+        }
+
+        document.addEventListener('click', (e) => {
+            if (!paintModeActive) return;
+            if (e.target.closest('#paint-mode-btn') || e.target.closest('.paint-toolbar') || e.target.tagName === 'INPUT') return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            const el = e.target;
+            const input = document.createElement('input');
+            input.type = 'color';
+
+            const isTextOriented = el.tagName === 'SPAN' || el.tagName === 'P' || el.tagName === 'I' || el.tagName === 'H1' || el.tagName === 'H2' || el.tagName === 'H4';
+
+            input.addEventListener('input', (ev) => {
+                const val = ev.target.value;
+                const selector = getBestSelector(el);
+                if (isTextOriented) {
+                    el.style.setProperty('color', val, 'important');
+                    saveElementPaint(selector, 'color', val);
+                } else {
+                    el.style.setProperty('background-color', val, 'important');
+                    el.style.setProperty('border-color', val, 'important');
+                    saveElementPaint(selector, 'background-color', val);
+                    saveElementPaint(selector, 'border-color', val);
+                }
+
+                if (el.tagName === 'I' && el.parentElement && el.parentElement.tagName === 'BUTTON') {
+                    el.parentElement.style.setProperty('background-color', val, 'important');
+                    el.parentElement.style.setProperty('border-color', val, 'important');
+                    saveElementPaint(getBestSelector(el.parentElement), 'background-color', val);
+                }
+            });
+
+            input.click();
+        }, true);
+
+        function showToast(title, message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.innerHTML = `
+                <div class="toast-content">
+                    <div class="toast-title">${title}</div>
+                    <div class="toast-message">${message}</div>
+                </div>
+            `;
+            const container = document.getElementById('toast-container');
+            if (container) {
+                container.appendChild(toast);
+                setTimeout(() => {
+                    toast.style.opacity = '0';
+                    toast.style.transform = 'translateY(20px)';
+                    setTimeout(() => toast.remove(), 500);
+                }, 4000);
+            }
+        }
+
+        document.addEventListener('contextmenu', (e) => {
+            if (paintModeActive) {
+                e.preventDefault();
+                exitPaintMode();
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && paintModeActive) {
+                exitPaintMode();
+            }
+        });
+
+        if (paintModeBtn) {
+            paintModeBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                paintModeActive = true;
+                document.body.style.cursor = 'crosshair';
+                customThemeControls.style.display = 'none';
+                createPaintToolbar();
+            });
+        }
+
+        applySavedElementPaints();
+
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : null;
+        }
+
+        function adjustColor(color, amount) {
+            let usePound = false;
+            if (color[0] == "#") {
+                color = color.slice(1);
+                usePound = true;
+            }
+            let num = parseInt(color, 16);
+            let r = (num >> 16) + amount;
+            if (r > 255) r = 255; else if (r < 0) r = 0;
+            let b = ((num >> 8) & 0x00FF) + amount;
+            if (b > 255) b = 255; else if (b < 0) b = 0;
+            let g = (num & 0x0000FF) + amount;
+            if (g > 255) g = 255; else if (g < 0) g = 0;
+            return (usePound ? "#" : "") + (g | (b << 8) | (r << 16)).toString(16).padStart(6, '0');
+        }
+
+        function isDarkColor(color) {
+            const hex = color.replace('#', '');
+            const r = parseInt(hex.substr(0, 2), 16);
+            const g = parseInt(hex.substr(2, 2), 16);
+            const b = parseInt(hex.substr(4, 2), 16);
+            const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+            return (yiq < 128);
+        }
+
+
+        const auditConsole = document.getElementById('audit-console');
+        const auditToggleBtn = document.getElementById('audit-toggle-btn');
+        const auditCloseBtn = document.getElementById('audit-close-btn');
+
+        if (auditToggleBtn) {
+            auditToggleBtn.addEventListener('click', () => {
+                auditConsole.classList.toggle('open');
+                auditToggleBtn.classList.toggle('active', auditConsole.classList.contains('open'));
+            });
+        }
+        if (auditCloseBtn) {
+            auditCloseBtn.addEventListener('click', () => {
+                auditConsole.classList.remove('open');
+                auditToggleBtn.classList.remove('active');
+            });
+        }
+
+        window.auditLog = function (msg) {
+            const body = document.getElementById('audit-log-body');
+            if (body) {
+                const div = document.createElement('div');
+                div.className = 'audit-line';
+                div.textContent = `> ${msg}`;
+                body.appendChild(div);
+                body.scrollTop = body.scrollHeight;
+            }
+        };
+
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playProceduralSound(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            if (type === 'pop') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.05);
+                gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.1);
+            } else if (type === 'chime') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523.25, audioCtx.currentTime);
+                osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.1);
+                gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+                gainNode.gain.linearRampToValueAtTime(0.2, audioCtx.currentTime + 0.05);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.6);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.6);
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            const settingsBtn = document.getElementById('settings-toggle-btn');
+            const settingsModal = document.getElementById('settings-modal');
+            const settingsClose = document.getElementById('settings-close');
+            const settingsSave = document.getElementById('settings-save');
+            const audioCheck = document.getElementById('settings-audio');
+            const timerCheck = document.getElementById('settings-detailed-timer');
+
+            if (settingsBtn) {
+                settingsBtn.onclick = () => {
+                    audioCheck.checked = localStorage.getItem('emit-audio') !== 'false';
+                    timerCheck.checked = localStorage.getItem('emit-detailed-timer') === 'true';
+                    settingsModal.style.display = 'flex';
+                };
+            }
+            if (settingsClose) settingsClose.onclick = () => settingsModal.style.display = 'none';
+            if (settingsSave) {
+                settingsSave.onclick = () => {
+                    localStorage.setItem('emit-audio', audioCheck.checked);
+                    localStorage.setItem('emit-detailed-timer', timerCheck.checked);
+                    settingsModal.style.display = 'none';
+                    if (typeof showToast === 'function') showToast('Saved', 'Preferences updated.', 'success');
+                };
+            }
+
+            const isDropPage = await receiveHostedDrop();
+            if (!isDropPage) {
+                document.getElementById('drop-status').textContent = 'No drop token found. This link may be invalid.';
+                document.getElementById('drop-download-btn').disabled = true;
+            }
+        });
+    </script>
+</body>
+
+</html>

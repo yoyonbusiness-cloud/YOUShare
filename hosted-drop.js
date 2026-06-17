@@ -1,0 +1,770 @@
+const CHUNKED_DROP_MAX_BYTES = 50 * 1024 * 1024 * 1024;
+const HOSTED_CHUNK_SIZE_BYTES = 128 * 1024 * 1024;
+const AES_GCM_TAG_BYTES = 16;
+const IV_PREFIX_BYTES = 4;
+const MEMORY_SAFE_DOWNLOAD_MAX_BYTES = 4096 * 1024 * 1024;
+
+async function generateDropKey() {
+    return await crypto.subtle.generateKey(
+        { name: 'AES-GCM', length: 256 },
+        true,
+        ['encrypt', 'decrypt']
+    );
+}
+
+async function exportDropKey(key) {
+    const raw = await crypto.subtle.exportKey('raw', key);
+    return btoa(String.fromCharCode(...new Uint8Array(raw)));
+}
+
+async function importDropKey(b64, usages = ['decrypt']) {
+    const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    return await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM', length: 256 }, false, usages);
+}
+
+window.loadHostedResumeState = function(token) {
+    if (!token) return null;
+    try {
+        const raw = localStorage.getItem(`emit-resume-${token}`);
+        return raw ? JSON.parse(raw) : null;
+    } catch {
+        return null;
+    }
+};
+
+function saveHostedResumeState(token, state) {
+    if (!token) return;
+    try {
+        localStorage.setItem(`emit-resume-${token}`, JSON.stringify(state));
+    } catch {
+    }
+}
+
+function clearHostedResumeState(token) {
+    if (!token) return;
+    try {
+        localStorage.removeItem(`emit-resume-${token}`);
+    } catch {
+    }
+}
+
+function buildHostedResumeState(token, keyB64, ivPrefix4, chunkCount, uploadedChunks, file) {
+    return {
+        token,
+        keyB64,
+        ivPrefix4: uint8ToB64(ivPrefix4),
+        chunkCount,
+        chunks: Array.from(uploadedChunks),
+        fileName: file?.name || '',
+        fileSize: file?.size || 0
+    };
+}
+
+function uint8ToB64(u8) {
+    return btoa(String.fromCharCode(...u8));
+}
+
+function b64ToUint8(b64) {
+    return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+}
+
+function deriveChunkIv(ivPrefix4, chunkIndex) {
+    const iv = new Uint8Array(12);
+    iv.set(ivPrefix4, 0);
+    const dv = new DataView(iv.buffer);
+    dv.setUint32(8, chunkIndex >>> 0, false);
+    return iv;
+}
+
+async function createHostedUploadSession(file, durationMs, requestedToken = null) {
+    const fd = new FormData();
+    fd.append('name', file.name);
+    fd.append('size', file.size.toString());
+    fd.append('expiry', durationMs.toString());
+    if (requestedToken) fd.append('token', requestedToken);
+
+    const res = await fetch('/upload-session', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error('Failed to create upload session: ' + (await res.text()));
+    return await res.json(); 
+}
+
+async function uploadHostedChunk({ token, index, cipherBuf, onProgress }) {
+    const fd = new FormData();
+    fd.append('token', token);
+    fd.append('index', index.toString());
+    fd.append('chunk', new Blob([cipherBuf]), `chunk-${index}.enc`);
+
+    await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/upload-chunk');
+        xhr.upload.onprogress = (e) => {
+            if (!onProgress) return;
+            if (!e.lengthComputable) return;
+            onProgress(e.loaded, e.total);
+        };
+        xhr.onload = () => {
+            if (xhr.status === 200) resolve();
+            else reject(new Error('Chunk upload failed: ' + xhr.statusText));
+        };
+        xhr.onerror = () => reject(new Error('Network error during chunk upload'));
+        xhr.send(fd);
+    });
+}
+
+async function finalizeHostedUploadSession(token) {
+    const fd = new FormData();
+    fd.append('token', token);
+    const res = await fetch('/upload-finalize', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error('Failed to finalize upload: ' + (await res.text()));
+    return await res.json();
+}
+
+async function fetchHostedDropInfo(token) {
+    const res = await fetch(`/drop-info/${token}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error('Failed to load finalized drop info');
+    return await res.json();
+}
+
+async function hostedDrop(file, onProgress, durationMs = 60 * 60 * 1000, nickname = '', options = {}) {
+    if (!file) throw new Error('Missing file');
+    if (file.size > CHUNKED_DROP_MAX_BYTES) {
+        throw new Error(`File too large for hosted drop (max 50 GB). Use P2P for larger files.`);
+    }
+
+    const requestedToken = options.token || null;
+    const existingResume = requestedToken ? loadHostedResumeState(requestedToken) : null;
+    const key = existingResume?.keyB64 ? await importDropKey(existingResume.keyB64, ['encrypt', 'decrypt']) : await generateDropKey();
+    const keyB64 = existingResume?.keyB64 || await exportDropKey(key);
+
+    if (window.auditLog) auditLog(`🔒 Hosted-drop chunk encryption for "${file.name}"`);
+
+    const session = await createHostedUploadSession(file, durationMs, requestedToken);
+    const token = session.token;
+    const chunkSize = session.chunkSize || HOSTED_CHUNK_SIZE_BYTES;
+    const chunkCount = session.chunkCount;
+
+    if (existingResume) {
+        if (existingResume.fileName !== file.name || existingResume.fileSize !== file.size) {
+            throw new Error('Resume failed: File mismatch. Please select the original file.');
+        }
+        if (existingResume.originalChunkCount !== chunkCount && existingResume.chunkCount !== chunkCount) {
+            throw new Error('Resume failed: Chunk count mismatch. Try re-uploading.');
+        }
+    }
+
+    if (typeof ActivityTracker !== 'undefined' && !options.skipActivity) {
+        ActivityTracker.addHostedLink(token, {
+            name: options.isCollection ? (nickname || 'Shared Workspace') : file.name,
+            nickname: nickname,
+            size: options.totalSize || file.size,
+            durationMs,
+            expiresAt: null,
+            status: 'preparing',
+            isCollection: options.isCollection
+        });
+    }
+
+    const ivPrefix4 = existingResume?.ivPrefix4 ? b64ToUint8(existingResume.ivPrefix4) : crypto.getRandomValues(new Uint8Array(IV_PREFIX_BYTES));
+    const payload = {
+        v: 1,
+        k: keyB64,
+        iv: uint8ToB64(ivPrefix4),
+        cs: chunkSize,
+        cc: chunkCount
+    };
+
+    let completedChunks = 0;
+    let uploadedChunks = new Set();
+    let isResuming = false;
+
+    const savedResume = loadHostedResumeState(token);
+    if (savedResume && savedResume.chunkCount === chunkCount) {
+        uploadedChunks = new Set(savedResume.chunks || []);
+        completedChunks = uploadedChunks.size;
+        isResuming = true;
+    }
+
+    if (session.partsReceived && Array.from(session.partsReceived).length > 0) {
+        session.partsReceived.forEach(idx => uploadedChunks.add(idx));
+        completedChunks = uploadedChunks.size;
+        isResuming = true;
+    }
+
+    saveHostedResumeState(token, buildHostedResumeState(token, keyB64, ivPrefix4, chunkCount, uploadedChunks, file));
+
+    if (isResuming) {
+        if (typeof ActivityTracker !== 'undefined') ActivityTracker.setHostedLinkResuming(token, true);
+        onProgress?.('resuming', (completedChunks / chunkCount) * 100, { chunkCount });
+        if (window.auditLog) auditLog(`♻️ Resuming upload: ${completedChunks}/${chunkCount} chunks ready.`);
+    }
+
+    const MAX_CHUNKS_TOTAL = 64;
+    const MAX_RETRIES = 5;
+    if (!window._hostedActiveChunks) window._hostedActiveChunks = 0;
+
+    let activeChunkProgress = {};
+    let chunkRetries = {};
+    const notifyGranularProgress = () => {
+        let uploadedBytes = 0;
+        uploadedChunks.forEach(idx => {
+            const start = idx * chunkSize;
+            const end = Math.min(start + chunkSize, file.size);
+            uploadedBytes += (end - start);
+        });
+        for (const idx in activeChunkProgress) {
+            uploadedBytes += activeChunkProgress[idx];
+        }
+        const totalPct = Math.min(100, (uploadedBytes / file.size) * 100);
+        if (typeof ActivityTracker !== 'undefined') ActivityTracker.updateHostedLinkProgress(token, totalPct);
+        onProgress?.('uploading', totalPct, { uploadedBytes, totalSize: file.size });
+    };
+    const uploadQueue = [];
+    for (let i = 0; i < chunkCount; i++) {
+        if (!uploadedChunks.has(i)) uploadQueue.push(i);
+    }
+
+    if (uploadQueue.length > 0) {
+        const startupPct = completedChunks > 0 ? Math.max(1, (completedChunks / chunkCount) * 100) : 1;
+        if (typeof ActivityTracker !== 'undefined') ActivityTracker.updateHostedLinkProgress(token, startupPct);
+        onProgress?.('uploading', startupPct, { uploadedBytes: 0, totalSize: file.size });
+    }
+
+    async function processQueue() {
+        while (uploadQueue.length > 0) {
+            if (window._hostedActiveChunks >= MAX_CHUNKS_TOTAL) {
+                await new Promise(r => setTimeout(r, 100));
+                continue;
+            }
+
+            const i = uploadQueue.shift();
+            window._hostedActiveChunks++;
+
+            const start = i * chunkSize;
+            const end = Math.min(start + chunkSize, file.size);
+            const chunkBlob = file.slice(start, end);
+            const iv = deriveChunkIv(ivPrefix4, i);
+
+            (async () => {
+                try {
+                    const plainBuf = await chunkBlob.arrayBuffer();
+                    const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plainBuf);
+                    await uploadHostedChunk({
+                        token,
+                        index: i,
+                        cipherBuf,
+                        onProgress: (loaded) => {
+                            activeChunkProgress[i] = loaded;
+                            notifyGranularProgress();
+                        }
+                    });
+
+                    delete activeChunkProgress[i];
+                    uploadedChunks.add(i);
+                    saveHostedResumeState(token, buildHostedResumeState(token, keyB64, ivPrefix4, chunkCount, uploadedChunks, file));
+                    completedChunks++;
+                    notifyGranularProgress();
+                    chunkRetries[i] = 0;
+                } catch (err) {
+                    chunkRetries[i] = (chunkRetries[i] || 0) + 1;
+                    console.error('Chunk upload failed', err);
+                    delete activeChunkProgress[i];
+                    if (chunkRetries[i] < MAX_RETRIES) {
+                        uploadQueue.push(i);
+                    } else {
+                        showToast && showToast('Resume Failed', `Chunk ${i + 1} failed after ${MAX_RETRIES} retries.`, 'error');
+                        throw new Error(`Resume failed: Chunk ${i + 1} upload failed.`);
+                    }
+                } finally {
+                    window._hostedActiveChunks--;
+                    processQueue();
+                }
+            })();
+        }
+    }
+
+    await processQueue();
+    while (completedChunks < chunkCount) {
+        await new Promise(r => setTimeout(r, 200));
+    }
+
+    clearHostedResumeState(token);
+    if (typeof ActivityTracker !== 'undefined') ActivityTracker.setHostedLinkResuming(token, false);
+    onProgress?.('finalizing', 100);
+    const finalizeResult = await finalizeHostedUploadSession(token);
+    const finalizedInfo = (finalizeResult && finalizeResult.expires)
+        ? finalizeResult
+        : await fetchHostedDropInfo(token);
+
+    if (window.auditLog) auditLog(`✅ Chunked drop stored. Token: ${token}`);
+
+    const url = `${window.location.origin}/drop.html?t=${token}#key=${encodeURIComponent(JSON.stringify(payload))}`;
+    if (typeof ActivityTracker !== 'undefined') {
+        ActivityTracker.updateHostedLinkUrl(token, url, finalizedInfo?.expires || null);
+    }
+    return { url, token, keyB64, expires: finalizedInfo?.expires || null };
+}
+
+function triggerDustExplosion(element, particleCount = 40) {
+    if (!element) return;
+    element.classList.add('vanish-sand');
+    const rect = element.getBoundingClientRect();
+    for (let i = 0; i < particleCount; i++) {
+        const p = document.createElement('div');
+        p.className = 'sand-particle';
+        p.style.left = (rect.left + Math.random() * rect.width) + 'px';
+        p.style.top = (rect.top + Math.random() * rect.height) + 'px';
+        p.style.setProperty('--tx', ((Math.random() - 0.5) * 150) + 'px');
+        p.style.setProperty('--ty', (Math.random() * 150 + 50) + 'px');
+        p.style.setProperty('--rot', (Math.random() * 360) + 'deg');
+        document.body.appendChild(p);
+        setTimeout(() => p.remove(), 1200);
+    }
+}
+
+function triggerFullPageExplosion() {
+    if (typeof playProceduralSound === 'function') playProceduralSound('chime');
+    const children = Array.from(document.body.children).filter(el => {
+        const tag = el.tagName.toLowerCase();
+        return tag !== 'script' && tag !== 'style';
+    });
+
+    children.forEach(child => {
+        triggerDustExplosion(child, 60);
+    });
+}
+
+async function receiveHostedDrop() {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('t');
+    const hash = window.location.hash;
+
+    if (!token || !hash.startsWith('#key=')) return false;
+
+    const rawFrag = decodeURIComponent(hash.slice(5));
+    let fragPayload;
+    try {
+        fragPayload = JSON.parse(rawFrag);
+    } catch {
+        fragPayload = null;
+    }
+    const isChunked = !!(fragPayload && fragPayload.v === 1 && fragPayload.k && fragPayload.iv);
+    const keyB64 = isChunked ? fragPayload.k : rawFrag;
+
+    let meta;
+    try {
+        const r = await fetch(`/drop-info/${token}`);
+        if (!r.ok) throw new Error('expired');
+        meta = await r.json();
+    } catch {
+        if (typeof window.showDropDeletedState === 'function') {
+            window.showDropDeletedState();
+        } else {
+            if (typeof triggerFullPageExplosion === 'function') triggerFullPageExplosion();
+            setTimeout(() => {
+                window.location.href = '/';
+            }, 1200);
+        }
+        return true;
+    }
+
+    const statusEl = document.getElementById('drop-status');
+    const downloadBtn = document.getElementById('drop-download-btn');
+    const filenameEl = document.getElementById('drop-filename');
+    const sizeEl = document.getElementById('drop-size');
+    const expiryTimerEl = document.getElementById('expiry-timer');
+    const expiryTextEl = document.getElementById('expiry-text');
+    const directionEl = document.getElementById('drop-direction-indicator');
+    const statusTextEl = document.getElementById('drop-status-text');
+
+    const applyMeta = (nextMeta) => {
+        meta = nextMeta;
+        if (filenameEl) filenameEl.textContent = meta.filename;
+        if (sizeEl) sizeEl.textContent = typeof uiShared !== 'undefined' && uiShared.formatBytes ? uiShared.formatBytes(meta.size) : `${(meta.size / 1e6).toFixed(2)} MB`;
+        if (directionEl && statusTextEl) {
+            let iconClass = '';
+            let label = '';
+            if (meta.status === 'uploading') {
+                iconClass = 'hosted-direction-icon';
+                directionEl.style.backgroundImage = 'var(--hosted-indicator-upload)';
+                label = 'Uploading…';
+            } else if (meta.status === 'downloadable' || meta.status === 'ready') {
+                iconClass = 'hosted-direction-icon';
+                directionEl.style.backgroundImage = 'var(--hosted-indicator-download)';
+                label = 'Ready to Download';
+            } else if (meta.status === 'downloading') {
+                iconClass = 'hosted-direction-icon';
+                directionEl.style.backgroundImage = 'var(--hosted-indicator-download)';
+                label = 'Downloading…';
+            } else {
+                iconClass = 'hosted-direction-icon';
+                directionEl.style.backgroundImage = 'var(--hosted-indicator-download)';
+                label = 'Waiting…';
+            }
+            directionEl.className = iconClass;
+            statusTextEl.textContent = label;
+        } else if (statusEl) {
+            statusEl.textContent = meta.status === 'uploading'
+                ? 'Preparing secure download…'
+                : 'Decryption happens in your browser.';
+        }
+    };
+
+    applyMeta(meta);
+
+    let timerHandle = null;
+    let pollHandle = null;
+    let dropClosed = false;
+
+    const closeDropPage = () => {
+        if (dropClosed) return;
+        dropClosed = true;
+        if (timerHandle) clearTimeout(timerHandle);
+        if (pollHandle) clearTimeout(pollHandle);
+        if (typeof window.showDropDeletedState === 'function') {
+            window.showDropDeletedState();
+        } else {
+            window.location.replace('/');
+        }
+    };
+
+    const pollDropInfo = async () => {
+        if (dropClosed) return;
+        try {
+            const r = await fetch(`/drop-info/${token}`, { cache: 'no-store' });
+            if (!r.ok) {
+                closeDropPage();
+                return;
+            }
+            const nextMeta = await r.json();
+            applyMeta(nextMeta);
+        } catch {
+            closeDropPage();
+            return;
+        }
+        pollHandle = setTimeout(pollDropInfo, 1000);
+    };
+
+    function updateTimer() {
+        if (dropClosed) return;
+        if (!meta.expires) {
+            if (expiryTextEl) expiryTextEl.textContent = 'Preparing secure download…';
+            if (expiryTimerEl) expiryTimerEl.style.display = 'inline-flex';
+            timerHandle = setTimeout(updateTimer, 1000);
+            return;
+        }
+
+        const diff = meta.expires - Date.now();
+        if (diff <= 0) {
+            if (expiryTextEl) expiryTextEl.textContent = 'Expired';
+            closeDropPage();
+            return;
+        }
+
+        if (window.uiShared && typeof window.uiShared.formatExpiryCountdown === 'function') {
+            expiryTextEl.textContent = 'Expires in ' + window.uiShared.formatExpiryCountdown(diff);
+        } else {
+            const totalSeconds = Math.max(0, Math.ceil(diff / 1000));
+            const h = Math.floor(totalSeconds / 3600);
+            const m = Math.floor((totalSeconds % 3600) / 60);
+            const s = totalSeconds % 60;
+            if (h > 0) {
+                if (m > 0) {
+                    expiryTextEl.textContent = `Expires in ${h} hr${h > 1 ? 's' : ''} ${m} min${m > 1 ? 's' : ''}`;
+                } else {
+                    expiryTextEl.textContent = `Expires in ${h} hr${h > 1 ? 's' : ''}`;
+                }
+            } else if (m > 0) {
+                expiryTextEl.textContent = `Expires in ${m} min${m > 1 ? 's' : ''}`;
+            } else {
+                expiryTextEl.textContent = `Expires in ${s} sec${s > 1 ? 's' : ''}`;
+            }
+        }
+        if (expiryTimerEl) expiryTimerEl.style.display = 'inline-flex';
+
+        timerHandle = setTimeout(updateTimer, 1000);
+    }
+    updateTimer();
+    pollDropInfo();
+
+    const detailedTimerCheckbox = document.getElementById('settings-detailed-timer');
+    if (detailedTimerCheckbox) {
+        detailedTimerCheckbox.addEventListener('change', () => {
+            updateTimer();
+        });
+    }
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'ys_detailed_timer') {
+            updateTimer();
+        }
+    });
+
+    const isLargeChunked = isChunked && meta.size > MEMORY_SAFE_DOWNLOAD_MAX_BYTES;
+    if (isLargeChunked) {
+        if (statusEl) statusEl.textContent = 'Large file requires picking location to stream safely.';
+    }
+
+    if (meta.filename && meta.filename.endsWith('.json')) {
+        try {
+            const collectionKey = await importDropKey(keyB64);
+            let rawJson = null;
+
+            if (isChunked && meta.chunkCount) {
+                const cChunkCount = meta.chunkCount;
+                const cIvPrefix4 = b64ToUint8(fragPayload.iv);
+                const cParts = [];
+
+                for (let ci = 0; ci < cChunkCount; ci++) {
+                    const cResp = await fetch(`/download-chunk/${token}/${ci}`);
+                    if (!cResp.ok) throw new Error('chunk fetch failed');
+                    const cCipherBuf = await cResp.arrayBuffer();
+                    const cIv = deriveChunkIv(cIvPrefix4, ci);
+                    const cPlain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: cIv }, collectionKey, cCipherBuf);
+                    cParts.push(new Uint8Array(cPlain));
+                }
+
+                const totalLen = cParts.reduce((s, p) => s + p.length, 0);
+                const merged = new Uint8Array(totalLen);
+                let off = 0;
+                for (const p of cParts) {
+                    merged.set(p, off);
+                    off += p.length;
+                }
+                rawJson = new TextDecoder().decode(merged);
+            } else {
+                const cResp = await fetch(`/download/${token}`);
+                if (!cResp.ok) throw new Error('fetch failed');
+                const cPackedBuf = await cResp.arrayBuffer();
+                const cIv = new Uint8Array(cPackedBuf, 0, 12);
+                const cCipher = cPackedBuf.slice(12);
+                const cPlain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: cIv }, collectionKey, cCipher);
+                rawJson = new TextDecoder().decode(cPlain);
+            }
+            const collectionJson = JSON.parse(rawJson);
+            if (collectionJson && Array.isArray(collectionJson.files)) {
+                downloadBtn.style.display = 'none';
+                const card = document.querySelector('.card');
+                if (card) {
+                    card.style.maxWidth = '640px';
+                }
+                if (filenameEl) filenameEl.textContent = collectionJson.name || 'Shared Workspace';
+                if (sizeEl) sizeEl.textContent = collectionJson.files.length + ' files';
+                if (statusEl) statusEl.textContent = 'Each file is decrypted locally in your browser.';
+                const collectionDiv = document.getElementById('collection-list');
+                const itemsDiv = document.getElementById('collection-items');
+                const countBadge = document.getElementById('collection-count-badge');
+                if (collectionDiv && itemsDiv) {
+                    collectionDiv.style.display = 'block';
+                    if (countBadge) countBadge.textContent = collectionJson.files.length;
+                    itemsDiv.innerHTML = '';
+                    collectionJson.files.forEach(file => {
+                        const item = document.createElement('div');
+                        item.className = 'collection-item';
+
+                        const ext = file.name.split('.').pop().toLowerCase();
+                        let icon = 'fa-file';
+                        if (['jpg','jpeg','png','gif','webp'].includes(ext)) icon = 'fa-file-image';
+                        else if (['mp4','webm','mov'].includes(ext)) icon = 'fa-file-video';
+                        else if (['mp3','wav','ogg'].includes(ext)) icon = 'fa-file-audio';
+                        else if (['pdf'].includes(ext)) icon = 'fa-file-pdf';
+                        else if (['zip','rar','7z'].includes(ext)) icon = 'fa-file-zipper';
+
+                        const sizeStr = file.size ? (typeof uiShared !== 'undefined' && uiShared.formatBytes ? uiShared.formatBytes(file.size) : (file.size / (1024*1024)).toFixed(2) + ' MB') : 'Size unknown';
+
+                        item.innerHTML = `
+                            <div class="file-info">
+                                <div class="file-icon"><i class="fa-solid ${icon}"></i></div>
+                                <div class="file-details">
+                                    <div class="collection-name">${file.name}</div>
+                                    <div class="file-meta">${sizeStr}</div>
+                                </div>
+                            </div>
+                            <button class="btn-pill btn-primary btn-sm collection-dl-btn" style="padding: 0.6rem 1.2rem; font-size: 0.8rem;">
+                                <i class="fa-solid fa-download"></i>
+                            </button>
+                        `;
+                        const dlBtn = item.querySelector('.collection-dl-btn');
+                        dlBtn.onclick = async () => {
+                            dlBtn.disabled = true;
+                            dlBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+                            try {
+                                const fileUrl = new URL(file.url);
+                                const fileToken = fileUrl.searchParams.get('t');
+                                const fileHash = fileUrl.hash;
+                                const fileRawFrag = decodeURIComponent(fileHash.slice(5));
+                                const fileFrag = JSON.parse(fileRawFrag);
+                                const fileKeyB64 = fileFrag.k;
+                                const fileKey = await importDropKey(fileKeyB64);
+
+                                const fileInfoResp = await fetch(`/drop-info/${fileToken}`);
+                                if (!fileInfoResp.ok) throw new Error('File expired or not found');
+                                const fileMeta = await fileInfoResp.json();
+
+                                if (fileMeta.mode === 'chunked' && fileMeta.chunkCount) {
+                                    const fIvPrefix4 = b64ToUint8(fileFrag.iv);
+                                    const fParts = [];
+                                    for (let fi = 0; fi < fileMeta.chunkCount; fi++) {
+                                        dlBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${fi+1}/${fileMeta.chunkCount}`;
+                                        const fResp = await fetch(`/download-chunk/${fileToken}/${fi}`);
+                                        if (!fResp.ok) throw new Error('Chunk failed');
+                                        const fCipherBuf = await fResp.arrayBuffer();
+                                        const fIv = deriveChunkIv(fIvPrefix4, fi);
+                                        const fPlain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fIv }, fileKey, fCipherBuf);
+                                        fParts.push(new Blob([fPlain]));
+                                    }
+                                    const fBlob = new Blob(fParts);
+                                    const fA = document.createElement('a');
+                                    fA.href = URL.createObjectURL(fBlob);
+                                    fA.download = fileMeta.filename;
+                                    fA.click();
+                                } else {
+                                    const fResp = await fetch(`/download/${fileToken}`);
+                                    const fPackedBuf = await fResp.arrayBuffer();
+                                    const fIv = new Uint8Array(fPackedBuf, 0, 12);
+                                    const fCipher = fPackedBuf.slice(12);
+                                    const fPlain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fIv }, fileKey, fCipher);
+                                    const fBlob = new Blob([fPlain]);
+                                    const fA = document.createElement('a');
+                                    fA.href = URL.createObjectURL(fBlob);
+                                    fA.download = fileMeta.filename;
+                                    fA.click();
+                                }
+
+                                dlBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
+                                dlBtn.style.background = 'var(--accent-emerald)';
+                                if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+                            } catch (err) {
+                                dlBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+                                dlBtn.style.background = 'var(--accent-red, #ef4444)';
+                                dlBtn.disabled = false;
+                            }
+                        };
+                        itemsDiv.appendChild(item);
+                    });
+                }
+                return true;
+            }
+        } catch (e) {
+        }
+    }
+
+    downloadBtn?.addEventListener('click', async () => {
+        downloadBtn.disabled = true;
+        downloadBtn.textContent = isChunked ? 'Preparing...' : 'Downloading...';
+
+        const key = await importDropKey(keyB64);
+
+        if (!isChunked || !meta.chunkCount) {
+            downloadBtn.textContent = 'Downloading...';
+            const resp = await fetch(`/download/${token}`);
+            const packedBuf = await resp.arrayBuffer();
+
+            downloadBtn.textContent = 'Decrypting...';
+            const iv = new Uint8Array(packedBuf, 0, 12);
+            const cipher = packedBuf.slice(12);
+            let plain;
+            try {
+                plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
+            } catch {
+                downloadBtn.textContent = 'Decryption failed';
+                return;
+            }
+
+            const blob = new Blob([plain]);
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = meta.filename;
+            a.click();
+            downloadBtn.textContent = '✓ Downloaded';
+            if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+            return;
+        }
+
+        const chunkSize = meta.size > 0 ? (meta.chunkSize || fragPayload.cs || HOSTED_CHUNK_SIZE_BYTES) : HOSTED_CHUNK_SIZE_BYTES;
+        const chunkCount = meta.chunkCount;
+        const ivPrefix4 = b64ToUint8(fragPayload.iv);
+
+        const canStreamToDisk = typeof window.showSaveFilePicker === 'function';
+        const useBlob = meta.size <= MEMORY_SAFE_DOWNLOAD_MAX_BYTES || !canStreamToDisk;
+
+        if (!useBlob && !canStreamToDisk) {
+            downloadBtn.disabled = true;
+            if (statusEl) statusEl.textContent = 'File is too large to download without streaming support (File System Access API).';
+            return;
+        }
+
+        let writable = null;
+        let parts = null;
+        try {
+            if (!useBlob) {
+                downloadBtn.textContent = 'High-Speed Stream Mode';
+                if (statusEl) statusEl.textContent = 'Large file: Please select a save location to stream directly to disk...';
+                const handle = await window.showSaveFilePicker({ suggestedName: meta.filename });
+                writable = await handle.createWritable();
+            } else {
+                parts = [];
+            }
+
+            for (let i = 0; i < chunkCount; i++) {
+                downloadBtn.textContent = `Downloading ${i + 1}/${chunkCount}...`;
+                if (statusEl) statusEl.textContent = `Decrypting ${i + 1}/${chunkCount}...`;
+
+                const resp = await fetch(`/download-chunk/${token}/${i}`);
+                if (!resp.ok) throw new Error('Failed to download chunk ' + i);
+                const cipherBuf = await resp.arrayBuffer();
+
+                downloadBtn.textContent = `Decrypting ${i + 1}/${chunkCount}...`;
+                if (statusEl) statusEl.textContent = `Decrypting ${i + 1}/${chunkCount}...`;
+
+                const iv = deriveChunkIv(ivPrefix4, i);
+                let plainBuf;
+                try {
+                    plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipherBuf);
+                } catch {
+                    downloadBtn.textContent = 'Decryption failed';
+                    return;
+                }
+
+                if (writable) {
+                    await writable.write(new Uint8Array(plainBuf));
+                } else {
+                    parts.push(new Blob([plainBuf]));
+                }
+            }
+
+            if (writable) await writable.close();
+
+            if (!writable) {
+                const blob = new Blob(parts);
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = meta.filename;
+                a.click();
+            }
+
+            downloadBtn.textContent = '✓ Downloaded';
+            if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+            if (statusEl) statusEl.textContent = '✓ Download complete.';
+        } catch (e) {
+            if (e.name === 'AbortError') {
+                downloadBtn.disabled = false;
+                downloadBtn.textContent = 'Download (Interrupted)';
+                if (statusEl) statusEl.textContent = 'Download cancelled by user.';
+                return;
+            }
+            console.error('Download failed', e);
+            downloadBtn.textContent = '❌ Download Failed';
+            if (statusEl) statusEl.textContent = 'Error: ' + e.message;
+            downloadBtn.disabled = false;
+        } finally {
+            try {
+                if (writable) await writable.close();
+            } catch {
+            }
+        }
+    });
+
+    return true;
+}
+
+window.hostedDrop = hostedDrop;
+window.receiveHostedDrop = receiveHostedDrop;

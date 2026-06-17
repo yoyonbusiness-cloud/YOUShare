@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EmitHub - Secure Peer-to-Peer File Sharing</title>
+    <meta name="description"
+        content="EmitHub is a secure peer-to-peer file sharing tool that allows you to send large files directly to others without intermediate servers.">
+    <link rel="icon" type="image/png" href="favicon.png">
+
+    <!-- Set theme immediately to prevent color flash on reload -->
+    <script>
+        (function() {
+            const theme = localStorage.getItem('emit-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet">
+
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="styles.css">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+    <script src="webrtc_fix.js"></script>
+    <script src="webrtc_final_fix.js"></script>
+</head>
+
+<body>
+
+    <div id="fullscreen-drop-overlay" class="fullscreen-drop-overlay">
+        <div class="fullscreen-drop-content">
+            <i class="fa-solid fa-cloud-arrow-up fullscreen-drop-icon"></i>
+            <h2 class="fullscreen-drop-title">Drop Files to Send Securely</h2>
+        </div>
+    </div>
+
+    <header class="site-header">
+        <div class="logo">emit</div>
+        <nav class="nav-links">
+
+            <div id="e2e-badge" class="e2e-badge" style="display:none;">
+                <i class="fa-solid fa-lock"></i>
+                <span>Private & Secure</span>
+            </div>
+            <div style="position: relative; margin-right: 0.5rem; display: flex; align-items: center;">
+                <select id="settings-theme-select" class="form-input"
+                    style="appearance: none; -webkit-appearance: none; background-color: var(--btn-ghost-bg); background-image: url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E&quot;); background-repeat: no-repeat; background-position: right 1rem center; height: 36px; padding: 0 2.5rem 0 1.25rem; color: var(--text-primary); border: 1px solid var(--btn-ghost-border); cursor: pointer; border-radius: 999px; font-weight: 600;">
+                    <option value="dark" style="background: #030305; color: #ffffff;">Dark</option>
+                    <option value="light" style="background: #f8fafc; color: #0f172a;">Light</option>
+                    <option value="midnight-blue" style="background: #0a1628; color: #ffffff;">Midnight</option>
+                    <option value="forest-green" style="background: #0d1f14; color: #ffffff;">Forest</option>
+                    <option value="deep-red" style="background: #2a0808; color: #ffffff;">Deep Red</option>
+                    <option value="purple-haze" style="background: #1a0b2e; color: #ffffff;">Purple</option>
+                    <option value="custom" style="background: var(--bg-base); color: var(--text-pure);">Custom...
+                    </option>
+                </select>
+                <div id="custom-theme-controls"
+                    style="display: none; position: absolute; top: 120%; right: 0; padding: 1rem; background: var(--card-surface); border: 1px solid var(--card-border); border-radius: 12px; flex-direction: column; gap: 0.8rem; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 100; min-width: 220px;">
+                    <label
+                        style="display:flex; justify-content:space-between; align-items:center; font-size: 0.9rem; color: var(--text-secondary); font-weight: 600;">
+                        Background
+                        <input type="color" id="custom-bg-color" value="#121212"
+                            style="border:none; height:32px; width:44px; cursor:pointer; padding:0; background:transparent; border-radius: 6px;">
+                    </label>
+                    <label
+                        style="display:flex; justify-content:space-between; align-items:center; font-size: 0.9rem; color: var(--text-secondary); font-weight: 600;">
+                        Primary Accent
+                        <input type="color" id="custom-primary-color" value="#10b981"
+                            style="border:none; height:32px; width:44px; cursor:pointer; padding:0; background:transparent; border-radius: 6px;">
+                    </label>
+                    <label
+                        style="display:flex; justify-content:space-between; align-items:center; font-size: 0.9rem; color: var(--text-secondary); font-weight: 600;">
+                        Text Color
+                        <input type="color" id="custom-text-color" value="#ffffff"
+                            style="border:none; height:32px; width:44px; cursor:pointer; padding:0; background:transparent; border-radius: 6px;">
+                    </label>
+                    <div
+                        style="border-top: 1px solid var(--card-border); margin-top: 0.2rem; padding-top: 0.8rem; display: flex; justify-content: flex-end;">
+                        <button id="paint-mode-btn" class="btn-pill btn-ghost btn-sm"
+                            style="font-size: 0.75rem; padding: 0.4rem 0.8rem; display:flex; align-items:center; gap:0.4rem;">
+                            <i class="fa-solid fa-crosshairs"></i> Target Element
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <button id="audit-toggle-btn" class="btn-audit-toggle" title="Privacy Audit Console">
+                <i class="fa-solid fa-terminal"></i>
+                <span>Audit</span>
+            </button>
+            <button id="settings-toggle-btn" class="btn-audit-toggle" title="Settings">
+                <i class="fa-solid fa-gear"></i>
+                <span>Settings</span>
+            </button>
+            <button id="shortcuts-toggle-btn" class="btn-audit-toggle" title="Keyboard Shortcuts">
+                <i class="fa-solid fa-keyboard"></i>
+                <span>Keys</span>
+            </button>
+            <button id="patch-notes-toggle-btn" class="btn-audit-toggle" title="Patch Notes">
+                <i class="fa-solid fa-file-lines"></i>
+                <span>Updates</span>
+            </button>
+            <span class="status-indicator" id="status-indicator">
+                <span class="status-dot disconnected"></span>
+                <span class="status-text">OFFLINE</span>
+            </span>
+        </nav>
+    </header>
+
+    <div id="shortcuts-modal" class="drop-modal-overlay" style="display:none;">
+        <div class="drop-modal" style="padding: 2.5rem;">
+            <button class="top-close-btn" id="shortcuts-modal-close" title="Close"><i
+                    class="fa-solid fa-xmark"></i></button>
+            <h2 class="drop-modal-title" style="margin-bottom: 0.5rem;">Keyboard Shortcuts</h2>
+            <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--text-muted);">Quick actions for power users.</div>
+            <div class="shortcuts-grid"
+                style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; color: var(--text-secondary); font-size: 0.9rem;">
+                <div class="shortcut-item"><strong>Ctrl + V</strong>: Paste & Send</div>
+                <div class="shortcut-item"><strong>Ctrl + D</strong>: Destroy Vault</div>
+                <div class="shortcut-item"><strong>Alt + N</strong>: New Workspace</div>
+                <div class="shortcut-item"><strong>Esc</strong>: Close Modals</div>
+                <div class="shortcut-item"><strong>Tab</strong>: Navigate</div>
+                <div class="shortcut-item"><strong>Enter</strong>: Select</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="patch-notes-modal" class="drop-modal-overlay" style="display:none;">
+        <div class="drop-modal" style="padding: 2.5rem; max-width: 760px;">
+            <button class="top-close-btn" id="patch-notes-close" title="Close"><i class="fa-solid fa-xmark"></i></button>
+            <div class="drop-modal-title" style="margin-bottom: 0.5rem; display:flex; align-items:center; gap:0.65rem;">
+                <span>Patch Notes</span>
+            </div>
+            <div class="drop-modal-desc" style="margin-bottom: 1.5rem; color: var(--text-muted);">Latest updates and features in EmitHub.</div>
+            <div style="display:grid; gap:1rem; max-height:70vh; overflow:auto; padding-right:0.25rem;">
+                <section style="background: var(--btn-ghost-bg); border: 1px solid var(--card-border); border-radius: 18px; padding: 1.1rem 1.2rem;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.6rem;">
+                        <strong style="color: var(--text-pure); font-size: 1rem;">New Features</strong>
+                        <span style="font-size: 0.75rem; color: var(--accent-emerald); letter-spacing: 0.08em; text-transform: uppercase;">June 2026</span>
+                    </div>
+                    <ul style="margin:0; padding-left:1.1rem; color: var(--text-secondary); line-height:1.7; display:grid; gap:0.65rem;">
+                        <li><strong>Keyboard Shortcuts</strong>: Control the app without touching your mouse. Press Ctrl+V to instantly paste and send files, and Ctrl+D to immediately destroy your workspace.</li>
+                        <li><strong>Chunked Resume</strong>: Large file transfers survive network drops. If a transfer is interrupted halfway, it automatically resumes right where it stopped instead of starting over.</li>
+                        <li><strong>Transfer Speed Graph</strong>: Keep track of your transfer performance with a real-time speed graph showing MB/s during uploads and downloads.</li>
+                        <li><strong>Auto-Destroy on Inactivity</strong>: Automatically self-destructs the vault after a set period of inactivity. Room owners can enable, disable, or customize the timeout duration during room creation.</li>
+                        <li><strong>Stealth Mode</strong>: Strip metadata like camera types, locations from photos, and author info from documents before sending. Choose to enable it via a simple popup when creating hosted or P2P links.</li>
+                        <li><strong>Color Themes</strong>: Personalize your interface with custom color themes tailored to your style, going beyond simple light and dark modes.</li>
+                        <li><strong>Compact Mode</strong>: A minimal and dense layout designed for power users who want to maximize screen space and view more content at once.</li>
+                        <li><strong>Keyboard Navigation</strong>: Use every feature and navigate the entire application interface completely hands-free using just your keyboard.</li>
+                        <li><strong>Transfer Nicknames</strong>: Give your file transfers custom names (like "Project Files") so they appear clearly in your activity panel instead of generic, confusing codes.</li>
+                    </ul>
+                </section>
+            </div>
+        </div>
+    </div>
+
+    <main id="screen-room" class="screen active">
+        <div class="hero-split">
+
+            <div class="hero-text-side">
+                <span class="eyebrow">SECURE TRANSFER</span>
+                <h1 class="hero-title">emit</h1>
+                <p class="hero-subtitle">Direct, ephemeral peer-to-peer file sharing. Encrypted. No limits.</p>
+                <div class="hero-buttons" id="home-action-buttons">
+                    <button id="show-generate-btn" class="btn-pill btn-white">
+                        Create Vault <i class="fa-solid fa-arrow-right"></i>
+                    </button>
+                    <button id="show-join-btn" class="btn-pill btn-ghost">
+                        Join Workspace
+                    </button>
+                    <button id="show-hosted-btn" class="btn-pill btn-ghost">
+                        Hosted Link
+                    </button>
+                </div>
+            </div>
+
+            <div class="hero-card-side">
+                <div class="sleek-card">
+
+                    <div id="action-selection-panel" class="card-panel">
+                                <div class="card-header-main" style="display: flex; align-items: center; gap: 14px; padding: 1.25rem 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.06); width: 100%;">
+                                    <div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.04); display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;">
+                                        <i class="fa-solid fa-server" style="font-size: 1rem; color: var(--text-secondary);"></i>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column; gap: 2px;">
+                                        <span class="card-user" style="font-size: 0.95rem; font-weight: 700; color: var(--text-pure); letter-spacing: -0.01em;">Activity Tracker</span>
+                                        <span class="card-status" style="font-size: 0.8rem; color: var(--text-muted);">Recent rooms & transfers</span>
+                                    </div>
+                                </div>
+                        <div class="card-body" id="activity-tracker-body" style="padding: 1.5rem;">
+                            <p class="placeholder-text" id="activity-empty-text" style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; margin: 0;">Select an action on the left to initialize a secure peer-to-peer connection.</p>
+                        </div>
+                    </div>
+
+                    <div id="share-workspace-panel" class="card-panel" style="display: none;">
+                        <div class="card-header">
+                            <div class="card-header-left">
+                                <div class="avatar-ring is-active"><i class="fa-solid fa-lock"></i></div>
+                                <div class="card-title-group">
+                                    <span class="card-user">Vault Created</span>
+                                    <span class="card-status active-text">1 active session</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-body centered-panel">
+                            <span class="form-label text-center">Secure Access Code</span>
+                            <div class="code-display-giant">
+                                <span id="display-room-code-home">----</span>
+                                <button id="btn-copy-code-home" title="Copy"><i class="fa-regular fa-copy"></i></button>
+                            </div>
+
+                            <div class="custom-word-area" style="margin-top: 1rem; width: 100%;">
+                                <span class="form-label text-center">WORKSPACE SECRET (OPTIONAL)</span>
+                                <input type="text" id="custom-word-input" class="form-input text-center"
+                                    placeholder="Secret Password" maxlength="32" autocomplete="off">
+                            </div>
+
+                            <div class="custom-word-area" style="margin-top: 1rem; width: 100%;">
+                                <span class="form-label text-center">INACTIVITY SELF-DESTRUCT</span>
+                                <select id="inactivity-timer-select" class="form-input text-center" style="text-align-last: center;">
+                                    <option value="0">Off (Default)</option>
+                                    <option value="5">5 Minutes</option>
+                                    <option value="10">10 Minutes</option>
+                                    <option value="15">15 Minutes</option>
+                                    <option value="30">30 Minutes</option>
+                                    <option value="60">60 Minutes</option>
+                                </select>
+                            </div>
+
+                            <div class="action-row" style="margin-top:2rem;">
+                                <button id="cancel-share-btn" class="btn-text">Cancel</button>
+                                <button id="final-join-generated-btn" class="btn-pill btn-white btn-sm"
+                                    style="margin-left:auto;">Join <i class="fa-solid fa-arrow-right"></i></button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="join-workspace-panel" class="card-panel" style="display: none;">
+                        <div class="card-header">
+                            <div class="card-header-left">
+                            <div class="avatar-ring is-active"><i class="fa-solid fa-right-to-bracket"></i></div>
+                            <div class="card-title-group" style="padding: 1rem 0;">
+                                <span class="card-user">Connect</span>
+                                <span class="card-status">Enter workspace details</span>
+                            </div>
+                        </div>
+                        </div>
+                        <div class="card-body">
+                            <div style="margin-bottom: 1.25rem;">
+                                <span class="form-label">Workspace Code</span>
+                                <input type="text" id="room-id-input" class="form-input" placeholder="e.g. A8B2-X9M4"
+                                    autocomplete="off" maxlength="15">
+                            </div>
+
+                            <div style="margin-bottom: 1.25rem;">
+                                <span class="form-label">Workspace Secret (If set)</span>
+                                <input type="text" id="join-secret-input" class="form-input" placeholder="Secret Word"
+                                    autocomplete="off" maxlength="32">
+                            </div>
+
+                            <div class="action-row" style="margin-top:2rem;">
+                                <button id="cancel-join-btn" class="btn-text">Cancel</button>
+                                <button id="join-btn" class="btn-pill btn-white btn-sm"
+                                    style="margin-left:auto;">Join</button>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <main id="screen-transfer" class="screen">
+        <div class="dashboard-area">
+            <div class="sleek-card full-width">
+
+
+                <div class="card-header">
+                    <div class="card-header-left">
+                        <div class="avatar-ring is-active"><i class="fa-solid fa-network-wired"></i></div>
+                        <div class="card-title-group">
+                            <span class="card-user">Workspace: <span id="current-room-display">----</span></span>
+                            <span class="card-status active-text">Connected</span>
+                        </div>
+                    </div>
+
+
+                    <div id="p2p-expiry-timer" class="timer-badge" style="display:flex;">
+                        <i class="fa-solid fa-clock"></i>
+                        <span id="p2p-expiry-text">no time specified</span>
+                    </div>
+
+                    <div class="card-header-right" style="display:flex; gap: 0.75rem;">
+                        <button id="leave-btn" class="btn-pill btn-ghost btn-sm">Leave</button>
+                        <button id="destroy-btn" class="btn-pill btn-danger btn-sm">Destroy</button>
+                    </div>
+                </div>
+
+                <div class="card-body dashboard-grid">
+
+                    <div class="dashboard-info">
+                        <div class="tiny-label">SHARE CODE</div>
+                        <div class="box-sleek">
+                            <span id="display-room-code" class="mono-text">----</span>
+                            <button id="btn-copy-code" class="btn-icon"><i class="fa-solid fa-copy"></i></button>
+                        </div>
+
+                        <div class="tiny-label" style="margin-top:2rem;">DIRECT LINK</div>
+                        <div class="box-sleek">
+                            <span class="prefix" id="url-prefix">emit/</span>
+                            <input type="text" id="share-url" class="mono-text" readonly>
+                            <button id="btn-copy-link" class="btn-icon"><i class="fa-solid fa-link"></i></button>
+                        </div>
+
+                        <div id="qrcode" class="qr-box"></div>
+
+                        <div class="peer-management" style="margin-top: 2rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                <div class="tiny-label" style="margin-bottom: 0;">CONNECTED PEERS</div>
+                            </div>
+                            <div id="peer-list" class="peer-list-box">
+                                <div class="empty-peers">Waiting for peers to join...</div>
+                            </div>
+                        </div>
+
+                        <div class="room-chat-area">
+                            <div class="tiny-label">ROOM ACTIVITY & CHAT</div>
+                             <div id="chat-log" class="chat-log-box">
+                                 <div class="chat-placeholder">
+                                    <p>Messages are end-to-end encrypted. They are never stored and exist only in this session.</p>
+                                </div>
+                            </div>
+                            <div class="chat-input-row">
+                                <input type="text" id="chat-input" class="form-input" placeholder="Message your peers securely...">
+                                <button id="send-chat-btn" class="btn-chat-send" title="Send Message"><i
+                                        class="fa-solid fa-arrow-up"></i></button>
+                            </div>
+                            <div class="quick-reactions">
+                                <button class="reaction-btn" onclick="broadcastReaction('✅')" title="Done">✅</button>
+                                <button class="reaction-btn" onclick="broadcastReaction('❤️')" title="Love">❤️</button>
+                                <button class="reaction-btn" onclick="broadcastReaction('👍')" title="Agree">👍</button>
+                                <button class="reaction-btn" onclick="broadcastReaction('🎉')"
+                                    title="Celebrate">🎉</button>
+                                <button class="reaction-btn" onclick="broadcastReaction('🚀')" title="Fast">🚀</button>
+                                <button class="reaction-btn" onclick="broadcastReaction('🙏')"
+                                    title="Thanks">🙏</button>
+                                <button class="reaction-btn" onclick="broadcastReaction('😮')" title="Wow">😮</button>
+                                <button class="reaction-btn" onclick="broadcastReaction('👏')" title="Clap">👏</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-action">
+                        <div class="dropzone" id="drop-zone">
+                            <input type="file" id="file-input" hidden multiple>
+                            <input type="file" id="folder-input" hidden multiple webkitdirectory>
+                            <i class="fa-solid fa-cloud-arrow-up drop-icon"></i>
+                            <div class="drop-text">Drag files or folders here</div>
+                            <div
+                                style="display:flex; gap: 0.75rem; margin-top:1.5rem; flex-wrap: wrap; justify-content: center;">
+                                <button class="btn-pill btn-ghost btn-sm" id="browse-btn">Browse Files</button>
+                                <button class="btn-pill btn-ghost btn-sm" id="browse-folder-btn"><i
+                                        class="fa-solid fa-folder-open"></i> Send Folder</button>
+                            </div>
+                            <div class="stealth-mode-toggle-area"
+                                style="margin-top: 1.5rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-secondary); font-size: 0.8rem;">
+                                <input type="checkbox" id="stealth-mode-checkbox">
+                                <label for="stealth-mode-checkbox">Strip Metadata</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="transfers-section">
+                    <div class="transfers-header">
+                        <span class="tiny-label">ACTIVE TRANSFERS</span>
+                    </div>
+                    <ul id="transfers-container" class="transfers-list">
+
+                    </ul>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <div id="audit-console" class="audit-console">
+        <div class="audit-header">
+            <div class="audit-title">
+                <i class="fa-solid fa-terminal"></i>
+                <span>Privacy Audit Console</span>
+            </div>
+            <button id="audit-close-btn" class="btn-icon"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="audit-subtitle">Real-time log of every security step. All encryption runs in your browser. Data remains private to this browser instance.</div>
+        <div id="audit-log-body" class="audit-log-body">
+
+        </div>
+    </div>
+
+    <footer class="site-footer">
+        <div class="footer-inner">
+            <div class="footer-row">
+                <div class="footer-brand">YOYON</div>
+                <div class="footer-socials">
+                    <a href="https://github.com/yoyonbusiness-cloud/YOUShare.git" target="_blank" rel="noopener"
+                        title="GitHub" class="social-icon">
+                        <i class="fa-brands fa-github"></i>
+                    </a>
+                </div>
+            </div>
+            <div class="footer-divider"></div>
+            <div class="footer-bottom">
+                <p style="color: var(--text-muted); font-size: 0.9rem;">&copy; 2026 Yoyon. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <div id="toast-container" class="toast-container"></div>
+
+
+    <div id="leave-modal" class="drop-modal-overlay" style="display:none;">
+        <div class="drop-modal" style="padding: 2.5rem;">
+            <button class="top-close-btn" id="leave-modal-close" title="Close"><i
+                    class="fa-solid fa-xmark"></i></button>
+            <h2 class="drop-modal-title" style="margin-bottom: 0.5rem;">Leave Workspace</h2>
+            <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--text-muted);">Select how you want
+                to handle your files upon exiting.</div>
+
+            <div class="exit-strategies">
+                <label class="exit-strategy-card">
+                    <input type="radio" name="exit-strategy" value="standard" checked>
+                    <div class="strategy-info">
+                        <strong>Standard Exit</strong>
+                        <span>Leave the workspace now. Other members can continue sharing.</span>
+                    </div>
+                </label>
+                <label class="exit-strategy-card">
+                    <input type="radio" name="exit-strategy" value="peer">
+                    <div class="strategy-info">
+                        <strong>Follow Last Peer</strong>
+                        <span>Automatically close the room when everyone else leaves.</span>
+                    </div>
+                </label>
+                <label class="exit-strategy-card">
+                    <input type="radio" name="exit-strategy" value="timer">
+                    <div class="strategy-info">
+                        <strong>Safety Timer</strong>
+                        <span>Self-destruct after <input type="number" id="leave-timer-min" value="5" min="1" max="60"
+                                style="width: 50px; background: transparent; border: 1px solid var(--card-border); color: var(--text-pure); border-radius: 4px; padding: 2px 4px;">
+                            minutes.</span>
+                    </div>
+                </label>
+            </div>
+
+            <div class="drop-modal-btns" style="margin-top: 2rem;">
+                <button id="leave-cancel-btn" class="btn-pill btn-ghost">Cancel</button>
+                <button id="leave-confirm-btn" class="btn-pill btn-primary">Confirm & Leave</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="destroy-modal" class="drop-modal-overlay" style="display:none;">
+        <div class="drop-modal" style="padding: 2.5rem;">
+            <button class="top-close-btn" id="destroy-modal-close" title="Close"><i
+                    class="fa-solid fa-xmark"></i></button>
+            <h2 class="drop-modal-title" style="margin-bottom: 0.5rem;">Destroy Workspace?</h2>
+            <div class="drop-modal-desc" id="destroy-request-text"
+                style="margin-bottom: 1.5rem; color: var(--text-muted);">
+                This will instantly wipe all encryption keys and files for BOTH users. Your peer must agree to proceed.
+            </div>
+
+            <div class="drop-modal-btns" style="flex-direction: column; gap: 0.75rem;">
+                <button id="destroy-confirm-btn" class="btn-pill btn-danger" style="width: 100%;">Request Instant Wipe</button>
+                <button id="destroy-cancel-btn" class="btn-pill btn-ghost" style="width: 100%;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="drop-modal" class="drop-modal-overlay" style="display:none;">
+        <div class="drop-modal drop-modal--hosted">
+            <button class="top-close-btn" id="drop-modal-close" title="Close"><i class="fa-solid fa-xmark"></i></button>
+
+            <form id="drop-modal-form" class="hosted-modal-form">
+                <div class="drop-modal-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                <h2 class="drop-modal-title">Share Options</h2>
+                <div class="drop-modal-desc">Choose delay for Hosted Link (max 48h).</div>
+
+                <div class="time-selector-group" id="drop-expiry-controls">
+                    <div style="flex: 1;">
+                        <span class="form-label">Hours</span>
+                        <input type="number" id="drop-hours" class="form-input text-center" value="1" min="0" max="48" step="1" inputmode="numeric">
+                    </div>
+                    <div style="flex: 1;">
+                        <span class="form-label">Minutes</span>
+                        <input type="number" id="drop-minutes" class="form-input text-center" value="0" min="0" max="59" step="1" inputmode="numeric">
+                    </div>
+                </div>
+
+                <div class="drop-mode-cards">
+                    <button type="button" id="drop-modal-file-trigger" class="drop-mode-card">
+                        <div class="drop-mode-tag drop-mode-tag--hosted">Hosted Drop</div>
+                        <div class="drop-mode-name">Create Download Link</div>
+                        <div class="drop-mode-desc">Up to 50 GB. Recipient can download whenever. End-to-end encrypted.</div>
+                    </button>
+                </div>
+
+                <input type="file" id="drop-modal-file-input" hidden multiple>
+                <div class="drop-modal-file" id="drop-modal-filename">Nothing selected yet.</div>
+
+                <label style="display:flex; align-items:center; gap:0.65rem; margin-top:0.15rem; color:var(--text-secondary); font-size:0.9rem;">
+                    <input type="checkbox" id="zip-bundle-checkbox">
+                    <span>Bundle selected files into a ZIP before upload</span>
+                </label>
+
+                <div id="zip-name-area" class="hosted-zip-name" style="display:none;">
+                    <label class="form-label" for="drop-name-input">ZIP filename</label>
+                    <input type="text" id="drop-name-input" class="form-input" placeholder="shared-files.zip" autocomplete="off">
+                </div>
+
+                <div style="margin-top:0.75rem; margin-bottom:0.75rem;">
+                    <label class="form-label" for="drop-nickname-input">Transfer Nickname (Optional)</label>
+                    <input type="text" id="drop-nickname-input" class="form-input" placeholder="e.g. Project Files" autocomplete="off">
+                </div>
+
+                <div class="drop-modal-btns">
+                    <button type="submit" id="drop-modal-upload" class="btn-pill btn-primary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                        <i class="fa-solid fa-link"></i> Create Download Link
+                    </button>
+                </div>
+            </form>
+
+            <div id="drop-modal-progress" class="hosted-progress-view" style="display:none;">
+                <div class="hosted-progress-card">
+                    <div class="hosted-modal-eyebrow"><i class="fa-solid fa-lock"></i> Encrypting & Uploading</div>
+                    <div class="hosted-progress-ring-wrap">
+                        <svg viewBox="0 0 36 36" class="hosted-progress-ring-svg" aria-hidden="true">
+                            <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke-width="2"></path>
+                            <path id="portal-progress-ring" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--accent-emerald)" stroke-width="2" stroke-dasharray="0, 100"></path>
+                        </svg>
+                        <div id="drop-progress-pct-display" class="hosted-progress-pct">0%</div>
+                    </div>
+                    <div id="drop-progress-filename-display" class="drop-modal-file hosted-progress-file" style="margin-bottom: 0;">Waiting for file...</div>
+                </div>
+            </div>
+
+            <div id="drop-modal-result" class="hosted-result-view" style="display:none;">
+                <div class="hosted-progress-card">
+                    <div class="hosted-modal-eyebrow"><i class="fa-solid fa-sparkles"></i> Link Ready</div>
+                    <h3 class="hosted-progress-title" style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem;">Hosted link created</h3>
+                    <div class="drop-modal-desc" style="font-size: 0.82rem;">Copy and share the secure URL below.</div>
+                    <div class="hosted-result-box">
+                        <div class="drop-result-box">
+                            <input type="text" id="drop-result-url" class="form-input drop-result-url" readonly>
+                            <button type="button" id="drop-copy-btn" class="btn-pill btn-primary hosted-copy-icon" title="Copy hosted link"><i class="fa-solid fa-copy"></i></button>
+                        </div>
+                    </div>
+                    <div class="drop-modal-btns hosted-result-actions">
+                        <button type="button" id="copy-drop-btn" class="btn-pill btn-primary">Copy Link</button>
+                        <button type="button" id="hosted-wait-btn" class="btn-pill btn-ghost">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="inactivity-modal" class="drop-modal-overlay" style="display:none; z-index: 10001; backdrop-filter: blur(24px); background: var(--inactivity-overlay-bg);">
+        <div class="drop-modal" style="max-width: 420px; border: 2px solid var(--inactivity-border); background: var(--inactivity-bg); padding: 3rem; box-shadow: var(--inactivity-shadow); border-radius: 24px; position: relative; overflow: hidden; text-align: center;">
+            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--inactivity-grad); pointer-events: none;"></div>
+            <div style="position: absolute; top: -50px; left: -50px; width: 150px; height: 150px; background: var(--inactivity-glow); filter: blur(80px); opacity: 0.12;"></div>
+            
+            <div style="position: relative; width: 80px; height: 80px; margin: 0 auto 1.5rem;">
+                <svg viewBox="0 0 36 36" style="width: 100%; height: 100%; transform: rotate(-90deg);">
+                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--inactivity-stroke-bg)" stroke-width="2" />
+                    <path id="inactivity-svg-ring" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--inactivity-stroke)" stroke-width="2" stroke-dasharray="100, 100" style="transition: stroke-dasharray 1s linear;" />
+                </svg>
+                <div id="inactivity-countdown-text" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 1.5rem; font-weight: 900; color: var(--inactivity-text);">30</div>
+            </div>
+
+            <h2 class="drop-modal-title" style="margin-bottom: 0.75rem; color: var(--inactivity-text); font-size: 1.8rem; letter-spacing: -0.02em;">Inactivity Detected</h2>
+            <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--inactivity-desc); line-height: 1.6; font-size: 1.05rem;">
+                This workspace will be destroyed to maintain your privacy.
+            </div>
+            <button id="inactivity-confirm-btn" class="btn-pill btn-primary" style="width: 100%; height: 60px; font-size: 1.1rem; letter-spacing: 0.05em; font-weight: 800; text-transform: uppercase;">I'M STILL HERE</button>
+        </div>
+    </div>
+
+    <div id="secret-prompt-modal" class="drop-modal-overlay" style="display:none;">
+        <div class="drop-modal" style="padding: 2.5rem;">
+            <button class="top-close-btn" id="prompt-secret-close" title="Close"><i
+                    class="fa-solid fa-xmark"></i></button>
+            <h2 class="drop-modal-title" style="margin-bottom: 0.5rem;">Workspace Secret</h2>
+            <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--text-muted);">This workspace is protected. Enter the secret word to join.</div>
+            <input type="password" id="prompt-secret-input" class="form-input text-center" placeholder="Secret Word"
+                autocomplete="off">
+            <div class="drop-modal-btns" style="margin-top: 1.5rem;">
+                <button id="prompt-secret-cancel" class="btn-pill btn-ghost">Cancel</button>
+                <button id="prompt-secret-submit" class="btn-pill btn-primary">Join</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="settings-modal" class="drop-modal-overlay" style="display:none;">
+        <div class="drop-modal" style="padding: 2.5rem;">
+            <button class="top-close-btn" id="settings-close" title="Close"><i class="fa-solid fa-xmark"></i></button>
+            <h2 class="drop-modal-title" style="margin-bottom: 0.5rem;">Settings</h2>
+            <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--text-muted);">Configure your secure transfer environment.</div>
+
+            <div class="settings-list">
+
+                <div class="settings-item">
+                    <div class="settings-info">
+                        <div class="settings-label">Stealth Mode</div>
+                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.75rem;">Strip all metadata (EXIF/GPS) from images before sending.</div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="settings-stealth-mode">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="settings-item">
+                    <div class="settings-info">
+                        <div class="settings-label">Procedural Audio</div>
+                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.75rem;">Play subtle chimes for successful connections and transfers.</div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="settings-audio" checked>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="settings-item">
+                    <div class="settings-info">
+                        <div class="settings-label">Detailed Timer</div>
+                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.75rem;">ON shows total rolling minutes (e.g. "90 min"). OFF shows largest unit only (e.g. "1 hr").</div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="settings-detailed-timer">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="settings-item" style="flex-direction: column; align-items: flex-start; gap: 0.5rem; padding: 1rem 1.25rem;">
+                    <div class="settings-info">
+                        <div class="settings-label" style="font-size: 0.9rem;">Display Name</div>
+                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.7rem;">Set a display name visible to peers in your workspace.</div>
+                    </div>
+                    <div style="display: flex; gap: 0.4rem; width: 100%;">
+                        <input type="text" id="settings-user-name" class="form-input" style="flex: 1; max-width: none; height: 32px; font-size: 0.85rem;" placeholder="Enter name...">
+                        <button id="settings-confirm-name" class="btn-pill btn-ghost" style="white-space: nowrap; font-size: 0.7rem; height: 32px; padding: 0 0.75rem; border-color: var(--card-border);">CLAIM</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="drop-modal-btns" style="margin-top: 1.5rem;">
+                <button id="settings-save" class="btn-pill btn-primary w-full">Save Preferences</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="shared.js?v=3"></script>
+    <script src="activity-tracker.js?v=3" defer></script>
+    <script src="hosted-drop.js?v=3" defer></script>
+    <script src="app.js?v=3" defer></script>
+    <script src="webrtc.js?v=3" defer></script>
+    <div id="sound-nudge" style="display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--accent-emerald); color:#fff; padding:0.75rem 1.5rem; border-radius:999px; z-index:10005; cursor:pointer; box-shadow:0 10px 30px rgba(16,185,129,0.4); font-weight:700; align-items:center; gap:0.75rem;">
+        <i class="fa-solid fa-volume-high"></i>
+        <span>ENABLE SOUNDS</span>
+    </div>
+
+    <div id="destruction-request-modal" class="drop-modal-overlay" style="display:none; z-index: 10002;">
+        <div class="drop-modal" style="max-width: 420px; border: 1px solid var(--accent-danger); background: var(--card-surface); padding: 2.5rem; box-shadow: 0 20px 50px rgba(0,0,0,0.5);">
+            <h2 class="drop-modal-title" style="margin-bottom: 0.75rem; color: var(--accent-danger);">Workspace Termination</h2>
+            <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--text-secondary); line-height: 1.6;">
+                <span id="destruction-requester-name" style="color: var(--text-pure); font-weight: 700;">A participant</span> wants to destroy this room. Accepted: <strong id="destruction-request-countdown" style="color: var(--text-pure); font-size: 1.1rem;">0/0</strong>.
+            </div>
+            <div id="destruction-vote-lists" style="display:flex; gap:1rem; margin-bottom:1.5rem;">
+                <div style="flex:1; min-width:0; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.18); border-radius:14px; padding:0.9rem;">
+                    <div style="font-size:0.72rem; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; color:var(--accent-emerald); margin-bottom:0.6rem;">Accepted</div>
+                    <div id="destruction-accepted-list" style="display:flex; flex-direction:column; gap:0.45rem; color:var(--text-primary);"></div>
+                </div>
+                <div style="flex:1; min-width:0; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:0.9rem;">
+                    <div style="font-size:0.72rem; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted); margin-bottom:0.6rem;">Still waiting</div>
+                    <div id="destruction-pending-list" style="display:flex; flex-direction:column; gap:0.45rem; color:var(--text-secondary);"></div>
+                </div>
+            </div>
+            <div style="display:flex; gap:1rem;">
+                <button id="destruction-reject-btn" class="btn-pill btn-ghost" style="flex: 1; border-color: var(--accent-danger); color: var(--accent-danger);">REJECT</button>
+                <button id="destruction-accept-btn" class="btn-pill btn-danger" style="flex: 1;">ACCEPT</button>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
