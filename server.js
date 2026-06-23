@@ -954,6 +954,10 @@ function startServer(port = 3000) {
         });
     });
 
+    app.get(/.*/, (req, res) => {
+        res.sendFile(path.join(__dirname, 'index.html'));
+    });
+
     server.listen(port, '0.0.0.0', () => {
         const protocol = fs.existsSync(path.join(__dirname, 'server.pfx')) ? 'https' : 'http';
         console.log(`Server running on ${protocol}://0.0.0.0:${port}`);
