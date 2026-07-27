@@ -177,17 +177,38 @@
             <button class="top-close-btn" id="shortcuts-modal-close" title="Close"><i
                     class="fa-solid fa-xmark"></i></button>
             <h2 class="drop-modal-title" style="margin-bottom: 0.5rem;">Keyboard Shortcuts</h2>
-            <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--text-muted);">Quick actions for power
-                users.</div>
-            <div class="shortcuts-grid"
-                style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; color: var(--text-secondary); font-size: 0.9rem;">
-                <div class="shortcut-item"><strong>Ctrl + V</strong>: Paste & Send</div>
-                <div class="shortcut-item"><strong>Ctrl + D</strong>: Destroy Vault</div>
-                <div class="shortcut-item"><strong>Alt + N</strong>: New Workspace</div>
-                <div class="shortcut-item"><strong>Esc</strong>: Close Modals</div>
-                <div class="shortcut-item"><strong>Tab</strong>: Navigate</div>
-                <div class="shortcut-item"><strong>Enter</strong>: Select</div>
-            </div>
+            <div class="drop-modal-desc" style="margin-bottom: 1.25rem; color: var(--text-muted);">Quick actions for power users. <span id="shortcuts-os-label" style="font-size:0.8rem;"></span></div>
+            <div id="shortcuts-list" style="display:grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 1rem; color: var(--text-secondary); font-size: 0.9rem;"></div>
+            <script>
+                (function() {
+                    const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+                    const label = document.getElementById('shortcuts-os-label');
+                    const list = document.getElementById('shortcuts-list');
+                    if (label) label.textContent = isMac ? '(Mac)' : '(Windows / Linux)';
+                    const shortcuts = isMac ? [
+                        ['⌘ + V', 'Paste & Send'],
+                        ['⌘ + D', 'Destroy Vault'],
+                        ['⌘ + K', 'Command Palette'],
+                        ['⌥ + N', 'New Workspace'],
+                        ['/', 'Command Palette'],
+                        ['Esc', 'Close Modals'],
+                        ['Tab', 'Navigate'],
+                        ['Return', 'Select']
+                    ] : [
+                        ['Ctrl + V', 'Paste & Send'],
+                        ['Ctrl + D', 'Destroy Vault'],
+                        ['Ctrl + K', 'Command Palette'],
+                        ['Alt + N', 'New Workspace'],
+                        ['/', 'Command Palette'],
+                        ['Esc', 'Close Modals'],
+                        ['Tab', 'Navigate'],
+                        ['Enter', 'Select']
+                    ];
+                    if (list) list.innerHTML = shortcuts.map(([k, d]) =>
+                        `<div class="shortcut-item"><strong>${k}</strong></div><div class="shortcut-item" style="color:var(--text-muted);">${d}</div>`
+                    ).join('');
+                })();
+            </script>
         </div>
     </div>
 
