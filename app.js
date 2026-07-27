@@ -3295,7 +3295,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName) || document.activeElement.isContentEditable;
         const key = e.key.toLowerCase();
 
-        if ((e.ctrlKey && key === 'k') || (key === '/' && !isInput)) {
+        if (((e.ctrlKey || e.metaKey) && key === 'k') || (key === '/' && !isInput)) {
             e.preventDefault();
             e.stopPropagation();
             if (cpModal && cpModal.style.display === 'flex') {
