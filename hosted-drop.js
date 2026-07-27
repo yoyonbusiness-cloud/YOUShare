@@ -1,3 +1,4 @@
+
 const CHUNKED_DROP_MAX_BYTES = 50 * 1024 * 1024 * 1024;
 const HOSTED_CHUNK_SIZE_BYTES = 128 * 1024 * 1024;
 const AES_GCM_TAG_BYTES = 16;
@@ -22,7 +23,8 @@ async function importDropKey(b64, usages = ['decrypt']) {
     return await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM', length: 256 }, false, usages);
 }
 
-window.loadHostedResumeState = function(token) {
+// Expose for app.js resume UI
+window.loadHostedResumeState = function (token) {
     if (!token) return null;
     try {
         const raw = localStorage.getItem(`emit-resume-${token}`);
@@ -69,6 +71,10 @@ function b64ToUint8(b64) {
 }
 
 function deriveChunkIv(ivPrefix4, chunkIndex) {
+
+
+
+
     const iv = new Uint8Array(12);
     iv.set(ivPrefix4, 0);
     const dv = new DataView(iv.buffer);
@@ -85,7 +91,7 @@ async function createHostedUploadSession(file, durationMs, requestedToken = null
 
     const res = await fetch('/upload-session', { method: 'POST', body: fd });
     if (!res.ok) throw new Error('Failed to create upload session: ' + (await res.text()));
-    return await res.json(); 
+    return await res.json();
 }
 
 async function uploadHostedChunk({ token, index, cipherBuf, onProgress }) {
@@ -143,11 +149,12 @@ async function hostedDrop(file, onProgress, durationMs = 60 * 60 * 1000, nicknam
     const chunkSize = session.chunkSize || HOSTED_CHUNK_SIZE_BYTES;
     const chunkCount = session.chunkCount;
 
+    // Resume validation
     if (existingResume) {
         if (existingResume.fileName !== file.name || existingResume.fileSize !== file.size) {
             throw new Error('Resume failed: File mismatch. Please select the original file.');
         }
-        if (existingResume.originalChunkCount !== chunkCount && existingResume.chunkCount !== chunkCount) {
+        if (existingResume.chunkCount !== chunkCount) {
             throw new Error('Resume failed: Chunk count mismatch. Try re-uploading.');
         }
     }
@@ -184,6 +191,7 @@ async function hostedDrop(file, onProgress, durationMs = 60 * 60 * 1000, nicknam
         isResuming = true;
     }
 
+    // Server-side resume check: Merge server-reported chunks
     if (session.partsReceived && Array.from(session.partsReceived).length > 0) {
         session.partsReceived.forEach(idx => uploadedChunks.add(idx));
         completedChunks = uploadedChunks.size;
@@ -269,7 +277,7 @@ async function hostedDrop(file, onProgress, durationMs = 60 * 60 * 1000, nicknam
                     console.error('Chunk upload failed', err);
                     delete activeChunkProgress[i];
                     if (chunkRetries[i] < MAX_RETRIES) {
-                        uploadQueue.push(i);
+                        uploadQueue.push(i); // Retry
                     } else {
                         showToast && showToast('Resume Failed', `Chunk ${i + 1} failed after ${MAX_RETRIES} retries.`, 'error');
                         throw new Error(`Resume failed: Chunk ${i + 1} upload failed.`);
@@ -301,6 +309,7 @@ async function hostedDrop(file, onProgress, durationMs = 60 * 60 * 1000, nicknam
     if (typeof ActivityTracker !== 'undefined') {
         ActivityTracker.updateHostedLinkUrl(token, url, finalizedInfo?.expires || null);
     }
+    if (typeof recordStreakActivity === 'function') recordStreakActivity();
     return { url, token, keyB64, expires: finalizedInfo?.expires || null };
 }
 
@@ -444,6 +453,7 @@ async function receiveHostedDrop() {
         pollHandle = setTimeout(pollDropInfo, 1000);
     };
 
+
     function updateTimer() {
         if (dropClosed) return;
         if (!meta.expires) {
@@ -460,9 +470,11 @@ async function receiveHostedDrop() {
             return;
         }
 
+        // Use the user's setting to choose timer format, exactly as in activity tracker
         if (window.uiShared && typeof window.uiShared.formatExpiryCountdown === 'function') {
             expiryTextEl.textContent = 'Expires in ' + window.uiShared.formatExpiryCountdown(diff);
         } else {
+            // fallback: largest unit formatting
             const totalSeconds = Math.max(0, Math.ceil(diff / 1000));
             const h = Math.floor(totalSeconds / 3600);
             const m = Math.floor((totalSeconds % 3600) / 60);
@@ -486,6 +498,7 @@ async function receiveHostedDrop() {
     updateTimer();
     pollDropInfo();
 
+    // Listen for changes to the timer setting and update timer live
     const detailedTimerCheckbox = document.getElementById('settings-detailed-timer');
     if (detailedTimerCheckbox) {
         detailedTimerCheckbox.addEventListener('change', () => {
@@ -562,13 +575,13 @@ async function receiveHostedDrop() {
 
                         const ext = file.name.split('.').pop().toLowerCase();
                         let icon = 'fa-file';
-                        if (['jpg','jpeg','png','gif','webp'].includes(ext)) icon = 'fa-file-image';
-                        else if (['mp4','webm','mov'].includes(ext)) icon = 'fa-file-video';
-                        else if (['mp3','wav','ogg'].includes(ext)) icon = 'fa-file-audio';
+                        if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) icon = 'fa-file-image';
+                        else if (['mp4', 'webm', 'mov'].includes(ext)) icon = 'fa-file-video';
+                        else if (['mp3', 'wav', 'ogg'].includes(ext)) icon = 'fa-file-audio';
                         else if (['pdf'].includes(ext)) icon = 'fa-file-pdf';
-                        else if (['zip','rar','7z'].includes(ext)) icon = 'fa-file-zipper';
+                        else if (['zip', 'rar', '7z'].includes(ext)) icon = 'fa-file-zipper';
 
-                        const sizeStr = file.size ? (typeof uiShared !== 'undefined' && uiShared.formatBytes ? uiShared.formatBytes(file.size) : (file.size / (1024*1024)).toFixed(2) + ' MB') : 'Size unknown';
+                        const sizeStr = file.size ? (typeof uiShared !== 'undefined' && uiShared.formatBytes ? uiShared.formatBytes(file.size) : (file.size / (1024 * 1024)).toFixed(2) + ' MB') : 'Size unknown';
 
                         item.innerHTML = `
                             <div class="file-info">
@@ -603,7 +616,7 @@ async function receiveHostedDrop() {
                                     const fIvPrefix4 = b64ToUint8(fileFrag.iv);
                                     const fParts = [];
                                     for (let fi = 0; fi < fileMeta.chunkCount; fi++) {
-                                        dlBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${fi+1}/${fileMeta.chunkCount}`;
+                                        dlBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${fi + 1}/${fileMeta.chunkCount}`;
                                         const fResp = await fetch(`/download-chunk/${fileToken}/${fi}`);
                                         if (!fResp.ok) throw new Error('Chunk failed');
                                         const fCipherBuf = await fResp.arrayBuffer();
@@ -766,5 +779,11 @@ async function receiveHostedDrop() {
     return true;
 }
 
+async function resumeHostedDrop(files, token) {
+    if (!files || !files.length || !token) throw new Error('Missing file or token to resume');
+    return await hostedDrop(files[0], null, 60 * 60 * 1000, '', { token });
+}
+
 window.hostedDrop = hostedDrop;
+window.resumeHostedDrop = resumeHostedDrop;
 window.receiveHostedDrop = receiveHostedDrop;

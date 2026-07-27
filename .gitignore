@@ -3,3 +3,7 @@ node_modules/
 *.log
 .env
 tmp/
+drops/
+server.pfx
+webrtc_fix.js
+webrtc_final_fix.js

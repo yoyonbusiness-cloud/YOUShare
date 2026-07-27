@@ -1,3 +1,9 @@
+
+
+if (window.location.hostname === '0.0.0.0') {
+    window.location.hostname = 'localhost';
+}
+
 const CustomDialog = {
     _createOverlay() {
         const overlay = document.createElement('div');
@@ -53,6 +59,36 @@ const CustomDialog = {
             overlay.querySelector('#custom-dialog-ok').onclick = () => cleanup(true);
             overlay.querySelector('#custom-dialog-cancel').onclick = () => cleanup(false);
             overlay.onclick = (e) => { if(e.target === overlay) cleanup(false); };
+        });
+    },
+    alert(title, message) {
+        return new Promise((resolve) => {
+            const overlay = this._createOverlay();
+            const modal = this._createModal(title, message);
+            const cancelBtn = modal.querySelector('#custom-dialog-cancel');
+            if (cancelBtn) cancelBtn.remove();
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+            
+            requestAnimationFrame(() => {
+                overlay.style.opacity = '1';
+                modal.style.transform = 'translateY(0)';
+            });
+
+            let settled = false;
+            const cleanup = () => {
+                if (settled) return;
+                settled = true;
+                resolve();
+                modal.classList.add('vanish-sand');
+                overlay.style.opacity = '0';
+                setTimeout(() => {
+                    overlay.remove();
+                }, 800);
+            };
+
+            overlay.querySelector('#custom-dialog-ok').onclick = cleanup;
+            overlay.onclick = (e) => { if(e.target === overlay) cleanup(); };
         });
     },
     prompt(title, message, defaultValue = '') {
@@ -175,18 +211,25 @@ function formatExpiryCountdown(ms) {
 
     if (isDetailed) {
         const totalMinutes = Math.floor(totalSeconds / 60);
-        if (totalMinutes > 0) return `${totalMinutes} min${s > 0 ? ` ${s} sec` : ''}`;
+        if (totalMinutes > 0) {
+            return `${totalMinutes} min${s > 0 ? ` ${s} sec` : ''}`;
+        }
         return `${s} sec`;
     }
+
     if (h > 0) {
         if (m > 0) {
-            return `${h} hr${h > 1 ? 's' : ''} ${m} min${m > 1 ? 's' : ''}`;
-        } else {
-            return `${h} hr${h > 1 ? 's' : ''}`;
+            return `${h} hr ${m} min`;
         }
+        return `${h} hr`;
     }
-    if (m > 0) return `${m} min${m > 1 ? 's' : ''}`;
-    return `${s} sec${s > 1 ? 's' : ''}`;
+    if (m > 0) {
+        if (s > 0) {
+            return `${m} min ${s} sec`;
+        }
+        return `${m} min`;
+    }
+    return `${s} sec`;
 }
 
 window.uiShared = { CustomDialog, stripMetadata, formatBytes, formatExpiryCountdown };

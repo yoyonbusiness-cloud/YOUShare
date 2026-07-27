@@ -1,8 +1,9 @@
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const path = require('path');
-const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
 
@@ -13,8 +14,8 @@ const MAX_HOSTED_EXPIRY_MS = 48 * 3600000;
 const ABANDONED_UPLOAD_TTL_MS = 30 * 60 * 1000;
 
 function startServer(port = 3000) {
-    const DROPS_DIR = path.join(process.cwd(), 'drops');
-    if (!fs.existsSync(DROPS_DIR)) fs.mkdirSync(DROPS_DIR);
+    const DROPS_DIR = path.join(os.tmpdir(), 'drops');
+    if (!fs.existsSync(DROPS_DIR)) fs.mkdirSync(DROPS_DIR, { recursive: true });
     const DROP_TTL_MS = 60 * 60 * 1000;
     const dropMeta = new Map();
     const uploadSessions = new Map();
@@ -172,7 +173,8 @@ function startServer(port = 3000) {
 
     const app = express();
     let server;
-    if (fs.existsSync(path.join(__dirname, 'server.pfx'))) {
+    const isAzure = !!(process.env.WEBSITE_SITE_NAME || process.env.WEBSITE_INSTANCE_ID);
+    if (!isAzure && fs.existsSync(path.join(__dirname, 'server.pfx'))) {
         server = require('https').createServer({
             pfx: fs.readFileSync(path.join(__dirname, 'server.pfx')),
             passphrase: 'password'
@@ -185,16 +187,34 @@ function startServer(port = 3000) {
             origin: "*",
             methods: ["GET", "POST"]
         },
-        transports: ['websocket'],
+        transports: ['websocket', 'polling'],
         pingTimeout: 60000,
         pingInterval: 25000,
-        maxHttpBufferSize: 1e8 
+        maxHttpBufferSize: 1e8
     });
 
     const activeRooms = new Map();
-    const ROOM_TIMEOUT_MS = 60 * 60 * 1000; 
-    const DISCONNECT_GRACE_MS = 60000; 
-    const INACTIVITY_IDLE_TRIGGER_MS = 2 * 60 * 1000; 
+    const ROOM_TIMEOUT_MS = 60 * 60 * 1000;
+    const DISCONNECT_GRACE_MS = 60000;
+    const INACTIVITY_IDLE_TRIGGER_MS = 2 * 60 * 1000;
+
+    function broadcastPublicRooms() {
+        const publicList = [];
+        for (const [, r] of activeRooms.entries()) {
+            if (r.isPublic) {
+                publicList.push({
+                    id: r.publicRoomId,
+                    roomId: r.publicRoomId,
+                    name: r.publicRoomName || '',
+                    desc: r.publicRoomDesc || '',
+                    peerCount: r.participants || 0,
+                    scheduleOpen: r.scheduleOpen || null,
+                    scheduleClose: r.scheduleClose || null
+                });
+            }
+        }
+        io.emit('public-rooms-list', publicList);
+    }
 
     function emitRoomMetadata(room, privateHash) {
         if (!room || !privateHash) return;
@@ -232,7 +252,7 @@ function startServer(port = 3000) {
             if (activeRooms.has(privateHash)) {
                 io.to(privateHash).emit('peer-destroyed-room');
                 activeRooms.delete(privateHash);
-                console.log(`Room auto-destroyed due to inactivity.`);
+                broadcastPublicRooms();
             }
         }, INACTIVITY_IDLE_TRIGGER_MS + room.inactivityTimeoutMs);
     }
@@ -488,6 +508,20 @@ function startServer(port = 3000) {
 
         socket.emit('global-stats-updated', globalStats);
 
+        const initPublicList = [];
+        for (const [, r] of activeRooms.entries()) {
+            if (r.isPublic) {
+                initPublicList.push({
+                    id: r.publicRoomId,
+                    roomId: r.publicRoomId,
+                    name: r.publicRoomName || '',
+                    desc: r.publicRoomDesc || '',
+                    peerCount: r.participants || 0
+                });
+            }
+        }
+        socket.emit('public-rooms-list', initPublicList);
+
         socket.on('create-room', (rawId) => {
             const hashedId = hashId(rawId);
             const expiresAt = Date.now() + ROOM_TIMEOUT_MS;
@@ -495,6 +529,7 @@ function startServer(port = 3000) {
                 if (activeRooms.has(hashedId)) {
                     io.to(hashedId).emit('peer-destroyed-room');
                     activeRooms.delete(hashedId);
+                    broadcastPublicRooms();
                 }
             }, ROOM_TIMEOUT_MS);
 
@@ -515,9 +550,27 @@ function startServer(port = 3000) {
         socket.on('join-room', async (signalingId, isCreator, userData) => {
             const publicCode = signalingId.split(':')[0];
             const privateHash = hashId(signalingId);
-            let room = activeRooms.get(privateHash);
 
-            if (!room) {
+            let existingRoomEntry = null;
+            for (const [hash, r] of activeRooms.entries()) {
+                if (r.publicRoomId === publicCode) {
+                    existingRoomEntry = { hash, room: r };
+                    break;
+                }
+            }
+
+            let room;
+            if (existingRoomEntry) {
+                if (existingRoomEntry.hash !== privateHash) {
+                    if (!isCreator) {
+                        socket.emit('secret-mismatch');
+                    } else {
+                        socket.emit('room-locked');
+                    }
+                    return;
+                }
+                room = existingRoomEntry.room;
+            } else {
                 if (!isCreator) {
                     socket.emit('room-not-found');
                     return;
@@ -527,6 +580,7 @@ function startServer(port = 3000) {
                     if (activeRooms.has(privateHash)) {
                         io.to(privateHash).emit('peer-destroyed-room');
                         activeRooms.delete(privateHash);
+                        broadcastPublicRooms();
                     }
                 }, ROOM_TIMEOUT_MS);
                 room = {
@@ -537,15 +591,21 @@ function startServer(port = 3000) {
                     signalingId: privateHash,
                     peers: {},
                     chatHistory: [],
-                    inactivityTimeoutMs: (userData && userData.inactivity) ? (parseInt(userData.inactivity) * 60 * 1000) : 0
+                    inactivityTimeoutMs: (userData && userData.inactivity) ? (parseInt(userData.inactivity) * 60 * 1000) : 0,
+                    isPublic: !!(userData && userData.isPublic),
+                    publicRoomId: publicCode,
+                    publicRoomName: (userData && userData.roomName) ? userData.roomName.substring(0, 30) : '',
+                    publicRoomDesc: (userData && userData.roomDesc) ? userData.roomDesc.substring(0, 100) : '',
+                    scheduleOpen: (userData && userData.scheduleOpen) ? userData.scheduleOpen : null,
+                    scheduleClose: (userData && userData.scheduleClose) ? userData.scheduleClose : null,
+                    forceSpectatorOnly: !!(userData && userData.forceSpectator)
                 };
                 if (room.inactivityTimeoutMs > 0) resetInactivityTimer(room, privateHash, privateHash);
                 activeRooms.set(privateHash, room);
-            }
 
-            if (room.signalingId !== privateHash) {
-                socket.emit('secret-mismatch');
-                return;
+                if (room.isPublic) {
+                    broadcastPublicRooms();
+                }
             }
 
             if (socket.privateHash && socket.privateHash !== privateHash) {
@@ -592,12 +652,22 @@ function startServer(port = 3000) {
                 }
             }
 
+            const isSpectator = !!(userData && userData.isSpectator);
+
             if (!room.peers[socket.id]) {
-                if (room.participants >= 5) {
-                    socket.emit('room-locked');
-                    return;
+                if (isSpectator) {
+                    const spectatorCount = Object.values(room.peers).filter(p => p.isSpectator).length;
+                    if (spectatorCount >= 5) {
+                        socket.emit('room-locked');
+                        return;
+                    }
+                } else {
+                    if (room.participants >= 5) {
+                        socket.emit('room-locked');
+                        return;
+                    }
+                    room.participants += 1;
                 }
-                room.participants += 1;
             }
 
             if (!room.isSafetyTimer) {
@@ -612,8 +682,11 @@ function startServer(port = 3000) {
                 tabSessionId: userData ? userData.tabSessionId : null,
                 isReconnect: isReconnect,
                 isShadowTab: isDuplicateTab,
-                primarySocketId: isDuplicateTab ? existingId : null
+                primarySocketId: isDuplicateTab ? existingId : null,
+                isSpectator: isSpectator
             };
+            socket.isSpectator = isSpectator;
+            socket.isCreator = !!isCreator;
             room.peers[socket.id] = metadata;
 
             activeRooms.set(privateHash, room);
@@ -646,9 +719,21 @@ function startServer(port = 3000) {
                 socket.to(privateHash).emit('user-joined', metadata);
             }
             io.to(privateHash).emit('peer-list', getVisiblePeers(room));
-            
+
             if (room.chatHistory.length > 0) {
                 socket.emit('chat-history', room.chatHistory);
+            }
+
+            if (room.isPublic) {
+                broadcastPublicRooms();
+            }
+
+            if (isCreator) {
+                socket.emit('room-settings', {
+                    forceSpectatorOnly: !!room.forceSpectatorOnly
+                });
+            } else if (room.forceSpectatorOnly && !isSpectator) {
+                socket.emit('force-spectator-mode');
             }
         });
 
@@ -697,6 +782,7 @@ function startServer(port = 3000) {
         });
 
         socket.on('chat-envelope', (payload, rawId, targetId) => {
+            if (socket.isSpectator) return;
             const privateHash = socket.privateHash;
             if (privateHash && activeRooms.has(privateHash)) {
                 resetInactivityTimer(activeRooms.get(privateHash), privateHash, privateHash);
@@ -746,6 +832,22 @@ function startServer(port = 3000) {
             }
         });
 
+        socket.on('list-public-rooms', () => {
+            const list = [];
+            for (const [hash, r] of activeRooms.entries()) {
+                if (r.isPublic) {
+                    list.push({
+                        id: r.publicRoomId,
+                        roomId: r.publicRoomId,
+                        name: r.publicRoomName || '',
+                        desc: r.publicRoomDesc || '',
+                        peerCount: r.participants || 0
+                    });
+                }
+            }
+            socket.emit('public-rooms-list', list);
+        });
+
         socket.on('request-destruction', (persistentId) => {
             const privateHash = socket.privateHash;
             if (privateHash && activeRooms.has(privateHash)) {
@@ -771,9 +873,9 @@ function startServer(port = 3000) {
                 const room = activeRooms.get(privateHash);
                 if (!room.destructionVotes) room.destructionVotes = new Set();
                 if (room.peers[socket.id]?.isShadowTab) return;
-                
+
                 room.destructionVotes.add(socket.id);
-                
+
                 const { requiredVotes, acceptedNames, pendingNames } = getDestroyVoteState(room);
                 io.to(privateHash).emit('destruction-vote-update', {
                     accepted: room.destructionVotes.size,
@@ -782,11 +884,12 @@ function startServer(port = 3000) {
                     acceptedNames,
                     pendingNames
                 });
-                
+
                 if (room.destructionVotes.size >= requiredVotes) {
                     clearTimeout(room.timeoutId);
                     activeRooms.delete(privateHash);
                     io.to(privateHash).emit('peer-destroyed-room');
+                    broadcastPublicRooms();
                     io.emit('global-stats-updated', globalStats);
                 }
             }
@@ -803,6 +906,7 @@ function startServer(port = 3000) {
         });
 
         socket.on('chat-message', (msg) => {
+            if (socket.isSpectator) return;
             const privateHash = socket.privateHash;
             if (privateHash && activeRooms.has(privateHash)) {
                 const room = activeRooms.get(privateHash);
@@ -810,15 +914,38 @@ function startServer(port = 3000) {
                     senderId: socket.id,
                     senderName: socket.userName,
                     text: msg.text,
-                    timestamp: Date.now()
+                    timestamp: Date.now(),
+                    ephemeral: !!msg.ephemeral,
+                    msgId: msg.msgId || null
                 };
-                room.chatHistory.push(chatMsg);
-                if (room.chatHistory.length > 50) room.chatHistory.shift();
+                if (!msg.ephemeral) {
+                    room.chatHistory.push(chatMsg);
+                    if (room.chatHistory.length > 50) room.chatHistory.shift();
+                }
                 if (room.inactivityTimeoutMs > 0) {
                     resetInactivityTimer(room, privateHash, privateHash);
                 }
                 socket.to(privateHash).emit('chat-message', chatMsg);
             }
+        });
+
+        socket.on('message-read', (msgId) => {
+            const privateHash = socket.privateHash;
+            if (privateHash) {
+                socket.to(privateHash).emit('message-read', msgId);
+            }
+        });
+
+        socket.on('typing-start', () => {
+            const privateHash = socket.privateHash;
+            if (socket.isSpectator || !privateHash) return;
+            socket.to(privateHash).emit('typing-start', socket.id, socket.userName);
+        });
+
+        socket.on('typing-stop', () => {
+            const privateHash = socket.privateHash;
+            if (!privateHash) return;
+            socket.to(privateHash).emit('typing-stop', socket.id);
         });
 
         socket.on('destroy-room', (signalingId) => {
@@ -828,6 +955,17 @@ function startServer(port = 3000) {
                 clearTimeout(room.timeoutId);
                 activeRooms.delete(privateHash);
                 io.to(privateHash).emit('peer-destroyed-room');
+                broadcastPublicRooms();
+            }
+        });
+
+        socket.on('set-force-spectator', (enabled) => {
+            const privateHash = socket.privateHash;
+            if (privateHash && activeRooms.has(privateHash) && socket.isCreator) {
+                const room = activeRooms.get(privateHash);
+                room.forceSpectatorOnly = !!enabled;
+                io.to(privateHash).emit('room-settings-update', { forceSpectatorOnly: room.forceSpectatorOnly });
+                if (room.isPublic) broadcastPublicRooms();
             }
         });
 
@@ -854,6 +992,7 @@ function startServer(port = 3000) {
                 clearTimeout(room.timeoutId);
                 activeRooms.delete(privateHash);
                 io.to(privateHash).emit('peer-destroyed-room');
+                broadcastPublicRooms();
             } else if (options.strategy === 'on-peer-exit') {
                 clearTimeout(room.timeoutId);
                 room.expiresAt = null;
@@ -869,6 +1008,7 @@ function startServer(port = 3000) {
                     if (activeRooms.has(privateHash)) {
                         io.to(privateHash).emit('peer-destroyed-room');
                         activeRooms.delete(privateHash);
+                        broadcastPublicRooms();
                     }
                 }, options.duration);
                 activeRooms.set(privateHash, room);
@@ -954,20 +1094,29 @@ function startServer(port = 3000) {
         });
     });
 
+    app.get('/drop.html', (req, res) => {
+        res.sendFile(path.join(__dirname, 'drop.html'));
+    });
+
     app.get(/.*/, (req, res) => {
         res.sendFile(path.join(__dirname, 'index.html'));
     });
 
-    server.listen(port, '0.0.0.0', () => {
-        const protocol = fs.existsSync(path.join(__dirname, 'server.pfx')) ? 'https' : 'http';
-        console.log(`Server running on ${protocol}://0.0.0.0:${port}`);
-    });
+    if (isNaN(port)) {
+        server.listen(port, () => {
+            const protocol = fs.existsSync(path.join(__dirname, 'server.pfx')) ? 'https' : 'http';
+            console.log(`Server running on ${protocol} pipe ${port}`);
+        });
+    } else {
+        server.listen(port, '0.0.0.0', () => {
+            const protocol = fs.existsSync(path.join(__dirname, 'server.pfx')) ? 'https' : 'http';
+            console.log(`Server running on ${protocol}://localhost:${port}`);
+        });
+    }
 
     return server;
 }
 
-if (require.main === module) {
-    startServer(process.env.PORT || 3001);
-}
+startServer(process.env.PORT || 8080);
 
 module.exports = { startServer };

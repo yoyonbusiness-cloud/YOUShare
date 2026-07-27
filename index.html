@@ -11,15 +11,63 @@
 
     <!-- Set theme immediately to prevent color flash on reload -->
     <script>
-        (function() {
+        (function () {
             const theme = localStorage.getItem('emit-theme') || 'dark';
             document.documentElement.setAttribute('data-theme', theme);
+            if (theme === 'custom') {
+                try {
+                    const savedCustom = JSON.parse(localStorage.getItem('emit-custom-theme') || '{"bg":"#121212","primary":"#10b981","text":"#ffffff"}');
+                    const rootStyle = document.documentElement.style;
+
+                    function adjustColor(color, amount) {
+                        let usePound = false;
+                        if (color[0] == "#") { color = color.slice(1); usePound = true; }
+                        let num = parseInt(color, 16);
+                        let r = (num >> 16) + amount; r = r > 255 ? 255 : (r < 0 ? 0 : r);
+                        let b = ((num >> 8) & 0x00FF) + amount; b = b > 255 ? 255 : (b < 0 ? 0 : b);
+                        let g = (num & 0x0000FF) + amount; g = g > 255 ? 255 : (g < 0 ? 0 : g);
+                        return (usePound ? "#" : "") + (g | (b << 8) | (r << 16)).toString(16).padStart(6, '0');
+                    }
+                    function hexToRgb(hex) {
+                        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                        return result ? parseInt(result[1], 16) + ", " + parseInt(result[2], 16) + ", " + parseInt(result[3], 16) : null;
+                    }
+                    function isDarkColor(color) {
+                        const hex = color.replace('#', '');
+                        const r = parseInt(hex.substr(0, 2), 16);
+                        const g = parseInt(hex.substr(2, 2), 16);
+                        const b = parseInt(hex.substr(4, 2), 16);
+                        return (((r * 299) + (g * 587) + (b * 114)) / 1000) < 128;
+                    }
+
+                    rootStyle.setProperty('--bg-base', savedCustom.bg);
+                    rootStyle.setProperty('--bg-grad-center', adjustColor(savedCustom.bg, 15));
+                    rootStyle.setProperty('--card-surface', adjustColor(savedCustom.bg, 10));
+                    rootStyle.setProperty('--card-elevated', adjustColor(savedCustom.bg, 20));
+                    rootStyle.setProperty('--card-border', 'rgba(255,255,255,0.05)');
+                    rootStyle.setProperty('--audit-bg', savedCustom.bg);
+                    rootStyle.setProperty('--accent-emerald', savedCustom.primary);
+                    rootStyle.setProperty('--btn-white-bg', savedCustom.primary);
+
+                    const rgb = hexToRgb(savedCustom.primary);
+                    if (rgb) {
+                        rootStyle.setProperty('--btn-ghost-bg', 'rgba(' + rgb + ', 0.08)');
+                        rootStyle.setProperty('--btn-ghost-border', 'rgba(' + rgb + ', 0.2)');
+                        rootStyle.setProperty('--btn-ghost-hover', 'rgba(' + rgb + ', 0.15)');
+                    }
+                    rootStyle.setProperty('--text-pure', savedCustom.text);
+                    rootStyle.setProperty('--text-primary', adjustColor(savedCustom.text, -20));
+                    rootStyle.setProperty('--text-secondary', adjustColor(savedCustom.text, -60));
+                    rootStyle.setProperty('--btn-white-text', isDarkColor(savedCustom.primary) ? '#ffffff' : '#000000');
+                } catch (e) { }
+            }
         })();
     </script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+    <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap"
         rel="stylesheet">
 
     <link rel="manifest" href="manifest.json">
@@ -92,6 +140,8 @@
                     </div>
                 </div>
             </div>
+
+            <!-- TODO: Add streak badge here in a future update when they give a damn -->
             <button id="audit-toggle-btn" class="btn-audit-toggle" title="Privacy Audit Console">
                 <i class="fa-solid fa-terminal"></i>
                 <span>Audit</span>
@@ -115,12 +165,20 @@
         </nav>
     </header>
 
+    <div id="emit-tabs-bar" class="emit-tabs-bar">
+        <div class="emit-tab active" data-tab-id="home">
+            <i class="fa-solid fa-house"></i>
+            <span>Home</span>
+        </div>
+    </div>
+
     <div id="shortcuts-modal" class="drop-modal-overlay" style="display:none;">
         <div class="drop-modal" style="padding: 2.5rem;">
             <button class="top-close-btn" id="shortcuts-modal-close" title="Close"><i
                     class="fa-solid fa-xmark"></i></button>
             <h2 class="drop-modal-title" style="margin-bottom: 0.5rem;">Keyboard Shortcuts</h2>
-            <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--text-muted);">Quick actions for power users.</div>
+            <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--text-muted);">Quick actions for power
+                users.</div>
             <div class="shortcuts-grid"
                 style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; color: var(--text-secondary); font-size: 0.9rem;">
                 <div class="shortcut-item"><strong>Ctrl + V</strong>: Paste & Send</div>
@@ -135,30 +193,33 @@
 
     <div id="patch-notes-modal" class="drop-modal-overlay" style="display:none;">
         <div class="drop-modal" style="padding: 2.5rem; max-width: 760px;">
-            <button class="top-close-btn" id="patch-notes-close" title="Close"><i class="fa-solid fa-xmark"></i></button>
+            <button class="top-close-btn" id="patch-notes-close" title="Close"><i
+                    class="fa-solid fa-xmark"></i></button>
             <div class="drop-modal-title" style="margin-bottom: 0.5rem; display:flex; align-items:center; gap:0.65rem;">
                 <span>Patch Notes</span>
             </div>
-            <div class="drop-modal-desc" style="margin-bottom: 1.5rem; color: var(--text-muted);">Latest updates and features in EmitHub.</div>
-            <div style="display:grid; gap:1rem; max-height:70vh; overflow:auto; padding-right:0.25rem;">
-                <section style="background: var(--btn-ghost-bg); border: 1px solid var(--card-border); border-radius: 18px; padding: 1.1rem 1.2rem;">
-                    <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.6rem;">
-                        <strong style="color: var(--text-pure); font-size: 1rem;">New Features</strong>
-                        <span style="font-size: 0.75rem; color: var(--accent-emerald); letter-spacing: 0.08em; text-transform: uppercase;">June 2026</span>
-                    </div>
-                    <ul style="margin:0; padding-left:1.1rem; color: var(--text-secondary); line-height:1.7; display:grid; gap:0.65rem;">
-                        <li><strong>Keyboard Shortcuts</strong>: Control the app without touching your mouse. Press Ctrl+V to instantly paste and send files, and Ctrl+D to immediately destroy your workspace.</li>
-                        <li><strong>Chunked Resume</strong>: Large file transfers survive network drops. If a transfer is interrupted halfway, it automatically resumes right where it stopped instead of starting over.</li>
-                        <li><strong>Transfer Speed Graph</strong>: Keep track of your transfer performance with a real-time speed graph showing MB/s during uploads and downloads.</li>
-                        <li><strong>Auto-Destroy on Inactivity</strong>: Automatically self-destructs the vault after a set period of inactivity. Room owners can enable, disable, or customize the timeout duration during room creation.</li>
-                        <li><strong>Stealth Mode</strong>: Strip metadata like camera types, locations from photos, and author info from documents before sending. Choose to enable it via a simple popup when creating hosted or P2P links.</li>
-                        <li><strong>Color Themes</strong>: Personalize your interface with custom color themes tailored to your style, going beyond simple light and dark modes.</li>
-                        <li><strong>Compact Mode</strong>: A minimal and dense layout designed for power users who want to maximize screen space and view more content at once.</li>
-                        <li><strong>Keyboard Navigation</strong>: Use every feature and navigate the entire application interface completely hands-free using just your keyboard.</li>
-                        <li><strong>Transfer Nicknames</strong>: Give your file transfers custom names (like "Project Files") so they appear clearly in your activity panel instead of generic, confusing codes.</li>
-                    </ul>
-                </section>
-            </div>
+            <div class="drop-modal-desc" style="margin-bottom: 1.5rem; color: var(--text-muted);">Latest updates and
+                features in EmitHub.</div>
+            <section
+                style="background: var(--btn-ghost-bg); border: 1px solid var(--card-border); border-radius: 18px; padding: 1.1rem 1.2rem;">
+                <div
+                    style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.6rem;">
+                    <strong style="color: var(--text-pure); font-size: 1rem;">July 2026 Release</strong>
+                    <span
+                        style="font-size: 0.75rem; color: var(--accent-emerald); letter-spacing: 0.08em; text-transform: uppercase;">July
+                        2026</span>
+                </div>
+                <ul
+                    style="margin:0; padding-left:1.1rem; color: var(--text-secondary); line-height:1.7; display:grid; gap:0.65rem;">
+                    <li><strong>Ultra-Short Hosted Links</strong>: Compact 8-character base62 tokens with server-persisted encryption payloads for ultra-clean shareable URLs.</li>
+                    <li><strong>Public Discovery</strong>: Browse and search for active public workspaces directly from the home dashboard.</li>
+                    <li><strong>Spectator Mode</strong>: Join workspaces as a read-only spectator to monitor transfers without consuming extra resources.</li>
+                    <li><strong>P2P & Hosted Resume</strong>: Resilient connection recovery that picks up interrupted file transfers right where they disconnected.</li>
+                    <li><strong>Recurring Room Daily Schedule</strong>: Set up automatic room creation and availability based on a customized daily timing schedule.</li>
+                    <li><strong>Command Palette & Search</strong>: Instantly search tools, change themes, join rooms, or paste hosted drop links with <kbd>Ctrl</kbd>+<kbd>K</kbd> or <kbd>/</kbd>.</li>
+                    <li><strong>Hosted Links Height</strong>: Hosted links are now as tall as your best friend.</li>
+                </ul>
+            </section>
         </div>
     </div>
 
@@ -186,18 +247,49 @@
                 <div class="sleek-card">
 
                     <div id="action-selection-panel" class="card-panel">
-                                <div class="card-header-main" style="display: flex; align-items: center; gap: 14px; padding: 1.25rem 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.06); width: 100%;">
-                                    <div style="width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.04); display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;">
-                                        <i class="fa-solid fa-server" style="font-size: 1rem; color: var(--text-secondary);"></i>
-                                    </div>
-                                    <div style="display: flex; flex-direction: column; gap: 2px;">
-                                        <span class="card-user" style="font-size: 0.95rem; font-weight: 700; color: var(--text-pure); letter-spacing: -0.01em;">Activity Tracker</span>
-                                        <span class="card-status" style="font-size: 0.8rem; color: var(--text-muted);">Recent rooms & transfers</span>
-                                    </div>
+                        <div class="card-header-main"
+                            style="display: flex; align-items: center; justify-content: space-between; padding: 1.25rem 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.06); width: 100%;">
+                            <div style="display: flex; align-items: center; gap: 14px;">
+                                <div
+                                    style="width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,0.04); display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.08); flex-shrink: 0;">
+                                    <i class="fa-solid fa-server"
+                                        style="font-size: 0.9rem; color: var(--text-secondary);"></i>
                                 </div>
-                        <div class="card-body" id="activity-tracker-body" style="padding: 1.5rem;">
-                            <p class="placeholder-text" id="activity-empty-text" style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; margin: 0;">Select an action on the left to initialize a secure peer-to-peer connection.</p>
+                                <div style="display: flex; flex-direction: column;">
+                                    <span class="card-user"
+                                        style="font-size: 0.9rem; font-weight: 700; color: var(--text-pure); letter-spacing: -0.01em;">Activity
+                                        Tracker</span>
+                                    <span class="card-status"
+                                        style="font-size: 0.75rem; color: var(--text-muted);">Recent
+                                        rooms &amp; transfers</span>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.75rem; align-items: center; margin-left: auto;">
+                                <button id="activity-tab-tracker" class="btn-text active"
+                                    style="font-weight: 700; font-size: 0.8rem; padding-bottom: 2px; border-bottom: 2px solid var(--accent-emerald);">Tracker</button>
+                                <button id="activity-tab-discovery" class="btn-text"
+                                    style="font-weight: 500; font-size: 0.8rem; padding-bottom: 2px; color: var(--text-secondary);">Discovery</button>
+                            </div>
                         </div>
+                        <div class="card-body" id="activity-tracker-body" style="padding: 1.5rem 15px;">
+                            <p class="placeholder-text" id="activity-empty-text"
+                                style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; margin: 0;">Select
+                                an action on the left to initialize a secure peer-to-peer connection.</p>
+                        </div>
+                        <div class="card-body" id="activity-discovery-body"
+                            style="padding: 1.5rem 15px; display: none;">
+                            <div style="margin-bottom: 0.75rem;">
+                                <input type="text" id="tracker-discovery-search" class="form-input"
+                                    placeholder="Search rooms by name or code..."
+                                    style="font-size:0.8rem; padding: 0.4rem 0.75rem; background: var(--card-elevated);">
+                            </div>
+                            <div id="tracker-public-rooms-list"
+                                style="display:flex; flex-direction:column; gap:0.5rem; max-height:220px; overflow-y:auto;">
+                                <p style="color:var(--text-muted); font-size:0.85rem;">No public rooms available.</p>
+                            </div>
+                        </div>
+
+
                     </div>
 
                     <div id="share-workspace-panel" class="card-panel" style="display: none;">
@@ -225,7 +317,8 @@
 
                             <div class="custom-word-area" style="margin-top: 1rem; width: 100%;">
                                 <span class="form-label text-center">INACTIVITY SELF-DESTRUCT</span>
-                                <select id="inactivity-timer-select" class="form-input text-center" style="text-align-last: center;">
+                                <select id="inactivity-timer-select" class="form-input text-center"
+                                    style="text-align-last: center;">
                                     <option value="0">Off (Default)</option>
                                     <option value="5">5 Minutes</option>
                                     <option value="10">10 Minutes</option>
@@ -233,6 +326,57 @@
                                     <option value="30">30 Minutes</option>
                                     <option value="60">60 Minutes</option>
                                 </select>
+                            </div>
+
+                            <div class="custom-word-area" style="margin-top: 1rem; width: 100%;">
+                                <span class="form-label text-center">RECURRING ROOM DAILY SCHEDULE (OPTIONAL)</span>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <input type="time" id="recurring-open-time" class="form-input text-center"
+                                        style="flex: 1;">
+                                    <input type="time" id="recurring-close-time" class="form-input text-center"
+                                        style="flex: 1;">
+                                </div>
+                            </div>
+
+                            <label
+                                style="display:flex; align-items:center; gap:0.65rem; margin-top:1rem; color:var(--text-secondary); font-size:0.85rem; width:100%;">
+                                <input type="checkbox" id="public-room-checkbox">
+                                <span>List this room publicly (Room Discovery)</span>
+                            </label>
+
+                            <label
+                                style="display:flex; align-items:center; gap:0.65rem; margin-top:1rem; color:var(--text-secondary); font-size:0.85rem; width:100%;">
+                                <input type="checkbox" id="force-spectator-checkbox">
+                                <span>Force all joining peers as Spectators</span>
+                            </label>
+
+                            <div id="public-room-details"
+                                style="display: none; margin-top: 1rem; width: 100%; text-align: left;">
+                                <div style="margin-bottom: 0.75rem;">
+                                    <span class="form-label">Room Name</span>
+                                    <input type="text" id="public-room-name" class="form-input"
+                                        placeholder="Required — e.g. Quiet Chat" maxlength="30" autocomplete="off">
+                                </div>
+                                <div style="margin-bottom: 0.75rem;">
+                                    <span class="form-label">Room Purpose / Description</span>
+                                    <select id="public-room-desc" class="form-input"
+                                        style="width: 100%; background: var(--card-elevated); color: var(--text-primary); border: 1px solid var(--card-border);">
+                                        <option value="General File Sharing">General File Sharing</option>
+                                        <option value="Colleague Collaboration">Colleague Collaboration</option>
+                                        <option value="Academic Study Group">Academic Study Group</option>
+                                        <option value="Media & Photos Share">Media & Photos Share</option>
+                                        <option value="Temporary Quick Drop">Temporary Quick Drop</option>
+                                    </select>
+                                </div>
+                                <div
+                                    style="padding: 0.75rem; border-radius: 6px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); font-size: 0.75rem; color: var(--text-secondary); line-height: 1.4;">
+                                    <span
+                                        style="color: var(--accent-danger); font-weight: 700; display: block; margin-bottom: 0.25rem;">⚠️
+                                        SAFETY NOTICE & TERMS</span>
+                                    We do not support any abuse or bad use on this site and find it absolutely
+                                    disgusting. Please use it well and for good reasons. We are all humans after all
+                                    with feelings, and you are not the only human.
+                                </div>
                             </div>
 
                             <div class="action-row" style="margin-top:2rem;">
@@ -246,12 +390,12 @@
                     <div id="join-workspace-panel" class="card-panel" style="display: none;">
                         <div class="card-header">
                             <div class="card-header-left">
-                            <div class="avatar-ring is-active"><i class="fa-solid fa-right-to-bracket"></i></div>
-                            <div class="card-title-group" style="padding: 1rem 0;">
-                                <span class="card-user">Connect</span>
-                                <span class="card-status">Enter workspace details</span>
+                                <div class="avatar-ring is-active"><i class="fa-solid fa-right-to-bracket"></i></div>
+                                <div class="card-title-group" style="padding: 1rem 0;">
+                                    <span class="card-user">Connect</span>
+                                    <span class="card-status">Enter workspace details</span>
+                                </div>
                             </div>
-                        </div>
                         </div>
                         <div class="card-body">
                             <div style="margin-bottom: 1.25rem;">
@@ -266,16 +410,29 @@
                                     autocomplete="off" maxlength="32">
                             </div>
 
-                            <div class="action-row" style="margin-top:2rem;">
+                            <label
+                                style="display:flex; align-items:center; gap:0.65rem; margin-bottom:1rem; color:var(--text-secondary); font-size:0.85rem;">
+                                <input type="checkbox" id="spectator-mode-checkbox">
+                                <span>Join as Spectator (receive only, no sending)</span>
+                            </label>
+
+                            <div class="action-row" style="margin-top:1rem;">
                                 <button id="cancel-join-btn" class="btn-text">Cancel</button>
                                 <button id="join-btn" class="btn-pill btn-white btn-sm"
                                     style="margin-left:auto;">Join</button>
                             </div>
+                            <button id="browse-public-rooms-btn" class="btn-text"
+                                style="margin-top:0.75rem; font-size:0.8rem; color:var(--accent-emerald); width:100%; text-align:center;">
+                                <i class="fa-solid fa-globe"></i> Browse Public Rooms
+                            </button>
                         </div>
                     </div>
 
+
+
                 </div>
             </div>
+        </div>
         </div>
     </main>
 
@@ -305,6 +462,7 @@
                     </div>
                 </div>
 
+
                 <div class="card-body dashboard-grid">
 
                     <div class="dashboard-info">
@@ -324,8 +482,13 @@
                         <div id="qrcode" class="qr-box"></div>
 
                         <div class="peer-management" style="margin-top: 2rem;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                            <div
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                                 <div class="tiny-label" style="margin-bottom: 0;">CONNECTED PEERS</div>
+                                <label id="owner-force-spectator-control"
+                                    style="display:none; align-items:center; gap:0.5rem; color:var(--text-secondary); font-size:0.75rem; margin-bottom:0; cursor:pointer;">
+                                    <input type="checkbox" id="toggle-force-spectator"> Force Spectator
+                                </label>
                             </div>
                             <div id="peer-list" class="peer-list-box">
                                 <div class="empty-peers">Waiting for peers to join...</div>
@@ -334,15 +497,27 @@
 
                         <div class="room-chat-area">
                             <div class="tiny-label">ROOM ACTIVITY & CHAT</div>
-                             <div id="chat-log" class="chat-log-box">
-                                 <div class="chat-placeholder">
-                                    <p>Messages are end-to-end encrypted. They are never stored and exist only in this session.</p>
+                            <div id="chat-log" class="chat-log-box">
+                                <div class="chat-placeholder">
+                                    <p>Messages are end-to-end encrypted. They are never stored and exist only in this
+                                        session.</p>
                                 </div>
                             </div>
+                            <div id="chat-typing-indicator"
+                                style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem; display: none;">
+                                Someone is typing...</div>
                             <div class="chat-input-row">
-                                <input type="text" id="chat-input" class="form-input" placeholder="Message your peers securely...">
+                                <input type="text" id="chat-input" class="form-input"
+                                    placeholder="Message your peers securely...">
                                 <button id="send-chat-btn" class="btn-chat-send" title="Send Message"><i
                                         class="fa-solid fa-arrow-up"></i></button>
+                            </div>
+                            <div
+                                style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; margin-bottom: 0.5rem;">
+                                <input type="checkbox" id="ephemeral-chat-checkbox">
+                                <label for="ephemeral-chat-checkbox"
+                                    style="font-size: 0.75rem; color: var(--text-secondary); cursor: pointer;">Ephemeral
+                                    (Self-destruct after read)</label>
                             </div>
                             <div class="quick-reactions">
                                 <button class="reaction-btn" onclick="broadcastReaction('✅')" title="Done">✅</button>
@@ -372,22 +547,41 @@
                                         class="fa-solid fa-folder-open"></i> Send Folder</button>
                             </div>
                             <div class="stealth-mode-toggle-area"
-                                style="margin-top: 1.5rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-secondary); font-size: 0.8rem;">
-                                <input type="checkbox" id="stealth-mode-checkbox">
-                                <label for="stealth-mode-checkbox">Strip Metadata</label>
+                                style="margin-top: 1.5rem; display: flex; flex-direction: column; gap: 0.75rem; color: var(--text-secondary); font-size: 0.8rem; text-align: left; width: 100%; max-width: 280px; margin-left: auto; margin-right: auto;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" id="stealth-mode-checkbox">
+                                    <label for="stealth-mode-checkbox">Strip Metadata</label>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <input type="checkbox" id="schedule-checkbox">
+                                    <label for="schedule-checkbox">Schedule Transfer</label>
+                                </div>
+                                <div id="schedule-time-container" style="display: none; width: 100%;">
+                                    <select id="schedule-time-select" class="form-input"
+                                        style="font-size: 0.8rem; padding: 0.4rem; background: rgba(0,0,0,0.3); border-color: var(--card-border); color: var(--text-pure); border-radius: 8px; width: 100%; text-align: left; text-align-last: left; font-weight: 500;">
+                                        <option value="1">In 1 Minute</option>
+                                        <option value="5">In 5 Minutes</option>
+                                        <option value="10">In 10 Minutes</option>
+                                        <option value="15">In 15 Minutes</option>
+                                        <option value="30">In 30 Minutes</option>
+                                        <option value="60">In 1 Hour</option>
+                                        <option value="120">In 2 Hours</option>
+                                    </select>
+                                </div>
+                                <div style="display: flex; flex-direction: column; gap: 0.25rem; width: 100%;">
+                                    <label for="file-note-input"
+                                        style="color: var(--text-secondary); font-size: 0.8rem;">Attach Sticky
+                                        Note</label>
+                                    <textarea id="file-note-input" class="form-input"
+                                        style="font-size: 0.8rem; height: 50px; resize: none; padding: 0.4rem; background: rgba(0,0,0,0.3); border-color: var(--card-border); color: var(--text-pure); border-radius: 8px; width: 100%;"
+                                        placeholder="Receiver reads this before downloading..."></textarea>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="transfers-section">
-                    <div class="transfers-header">
-                        <span class="tiny-label">ACTIVE TRANSFERS</span>
-                    </div>
-                    <ul id="transfers-container" class="transfers-list">
-
-                    </ul>
-                </div>
+                <ul id="transfers-container" class="transfers-list" style="display:none;"></ul>
 
             </div>
         </div>
@@ -401,7 +595,8 @@
             </div>
             <button id="audit-close-btn" class="btn-icon"><i class="fa-solid fa-xmark"></i></button>
         </div>
-        <div class="audit-subtitle">Real-time log of every security step. All encryption runs in your browser. Data remains private to this browser instance.</div>
+        <div class="audit-subtitle">Real-time log of every security step. All encryption runs in your browser. Data
+            remains private to this browser instance.</div>
         <div id="audit-log-body" class="audit-log-body">
 
         </div>
@@ -412,6 +607,23 @@
             <div class="footer-row">
                 <div class="footer-brand">YOYON</div>
                 <div class="footer-socials">
+                    <a href="https://paypal.me/FlyingKeyboard" class="btn-donate" title="Support on PayPal"
+                        target="_blank" rel="noopener">
+                        <i class="fa-brands fa-paypal"></i>
+                        Donate
+                    </a>
+                    <a href="http://www.youtube.com/@Yoyon23" target="_blank" rel="noopener" title="YouTube"
+                        class="social-icon">
+                        <i class="fa-brands fa-youtube"></i>
+                    </a>
+                    <a href="https://www.tiktok.com/@yoyon23y" target="_blank" rel="noopener" title="TikTok"
+                        class="social-icon">
+                        <i class="fa-brands fa-tiktok"></i>
+                    </a>
+                    <a href="https://www.instagram.com/yoyon16_/" target="_blank" rel="noopener" title="Instagram"
+                        class="social-icon">
+                        <i class="fa-brands fa-instagram"></i>
+                    </a>
                     <a href="https://github.com/yoyonbusiness-cloud/YOUShare.git" target="_blank" rel="noopener"
                         title="GitHub" class="social-icon">
                         <i class="fa-brands fa-github"></i>
@@ -421,6 +633,7 @@
             <div class="footer-divider"></div>
             <div class="footer-bottom">
                 <p style="color: var(--text-muted); font-size: 0.9rem;">&copy; 2026 Yoyon. All rights reserved.</p>
+                <a href="mailto:yoyonbusiness@gmail.com" style="color: var(--text-muted); font-size: 0.9rem; text-decoration: none; transition: color 0.2s;" onmouseover="this.style.color='var(--text-pure)'" onmouseout="this.style.color='var(--text-muted)'">yoyonbusiness@gmail.com</a>
             </div>
         </div>
     </footer>
@@ -480,7 +693,8 @@
             </div>
 
             <div class="drop-modal-btns" style="flex-direction: column; gap: 0.75rem;">
-                <button id="destroy-confirm-btn" class="btn-pill btn-danger" style="width: 100%;">Request Instant Wipe</button>
+                <button id="destroy-confirm-btn" class="btn-pill btn-danger" style="width: 100%;">Request Instant
+                    Wipe</button>
                 <button id="destroy-cancel-btn" class="btn-pill btn-ghost" style="width: 100%;">Cancel</button>
             </div>
         </div>
@@ -498,11 +712,13 @@
                 <div class="time-selector-group" id="drop-expiry-controls">
                     <div style="flex: 1;">
                         <span class="form-label">Hours</span>
-                        <input type="number" id="drop-hours" class="form-input text-center" value="1" min="0" max="48" step="1" inputmode="numeric">
+                        <input type="number" id="drop-hours" class="form-input text-center" value="1" min="0" max="48"
+                            step="1" inputmode="numeric">
                     </div>
                     <div style="flex: 1;">
                         <span class="form-label">Minutes</span>
-                        <input type="number" id="drop-minutes" class="form-input text-center" value="0" min="0" max="59" step="1" inputmode="numeric">
+                        <input type="number" id="drop-minutes" class="form-input text-center" value="0" min="0" max="59"
+                            step="1" inputmode="numeric">
                     </div>
                 </div>
 
@@ -510,30 +726,35 @@
                     <button type="button" id="drop-modal-file-trigger" class="drop-mode-card">
                         <div class="drop-mode-tag drop-mode-tag--hosted">Hosted Drop</div>
                         <div class="drop-mode-name">Create Download Link</div>
-                        <div class="drop-mode-desc">Up to 50 GB. Recipient can download whenever. End-to-end encrypted.</div>
+                        <div class="drop-mode-desc">Up to 50 GB. Recipient can download whenever. End-to-end encrypted.
+                        </div>
                     </button>
                 </div>
 
                 <input type="file" id="drop-modal-file-input" hidden multiple>
                 <div class="drop-modal-file" id="drop-modal-filename">Nothing selected yet.</div>
 
-                <label style="display:flex; align-items:center; gap:0.65rem; margin-top:0.15rem; color:var(--text-secondary); font-size:0.9rem;">
+                <label
+                    style="display:flex; align-items:center; gap:0.65rem; margin-top:0.15rem; color:var(--text-secondary); font-size:0.9rem;">
                     <input type="checkbox" id="zip-bundle-checkbox">
                     <span>Bundle selected files into a ZIP before upload</span>
                 </label>
 
                 <div id="zip-name-area" class="hosted-zip-name" style="display:none;">
                     <label class="form-label" for="drop-name-input">ZIP filename</label>
-                    <input type="text" id="drop-name-input" class="form-input" placeholder="shared-files.zip" autocomplete="off">
+                    <input type="text" id="drop-name-input" class="form-input" placeholder="shared-files.zip"
+                        autocomplete="off">
                 </div>
 
                 <div style="margin-top:0.75rem; margin-bottom:0.75rem;">
                     <label class="form-label" for="drop-nickname-input">Transfer Nickname (Optional)</label>
-                    <input type="text" id="drop-nickname-input" class="form-input" placeholder="e.g. Project Files" autocomplete="off">
+                    <input type="text" id="drop-nickname-input" class="form-input" placeholder="e.g. Project Files"
+                        autocomplete="off">
                 </div>
 
                 <div class="drop-modal-btns">
-                    <button type="submit" id="drop-modal-upload" class="btn-pill btn-primary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
+                    <button type="submit" id="drop-modal-upload" class="btn-pill btn-primary"
+                        style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 0.5rem;">
                         <i class="fa-solid fa-link"></i> Create Download Link
                     </button>
                 </div>
@@ -544,24 +765,33 @@
                     <div class="hosted-modal-eyebrow"><i class="fa-solid fa-lock"></i> Encrypting & Uploading</div>
                     <div class="hosted-progress-ring-wrap">
                         <svg viewBox="0 0 36 36" class="hosted-progress-ring-svg" aria-hidden="true">
-                            <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke-width="2"></path>
-                            <path id="portal-progress-ring" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--accent-emerald)" stroke-width="2" stroke-dasharray="0, 100"></path>
+                            <path class="ring-bg"
+                                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                fill="none" stroke-width="2"></path>
+                            <path id="portal-progress-ring"
+                                d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                fill="none" stroke="var(--accent-emerald)" stroke-width="2" stroke-dasharray="0, 100">
+                            </path>
                         </svg>
                         <div id="drop-progress-pct-display" class="hosted-progress-pct">0%</div>
                     </div>
-                    <div id="drop-progress-filename-display" class="drop-modal-file hosted-progress-file" style="margin-bottom: 0;">Waiting for file...</div>
+                    <div id="drop-progress-filename-display" class="drop-modal-file hosted-progress-file"
+                        style="margin-bottom: 0;">Waiting for file...</div>
                 </div>
             </div>
 
             <div id="drop-modal-result" class="hosted-result-view" style="display:none;">
                 <div class="hosted-progress-card">
                     <div class="hosted-modal-eyebrow"><i class="fa-solid fa-sparkles"></i> Link Ready</div>
-                    <h3 class="hosted-progress-title" style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem;">Hosted link created</h3>
+                    <h3 class="hosted-progress-title"
+                        style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.5rem;">
+                        Hosted link created</h3>
                     <div class="drop-modal-desc" style="font-size: 0.82rem;">Copy and share the secure URL below.</div>
                     <div class="hosted-result-box">
                         <div class="drop-result-box">
                             <input type="text" id="drop-result-url" class="form-input drop-result-url" readonly>
-                            <button type="button" id="drop-copy-btn" class="btn-pill btn-primary hosted-copy-icon" title="Copy hosted link"><i class="fa-solid fa-copy"></i></button>
+                            <button type="button" id="drop-copy-btn" class="btn-pill btn-primary hosted-copy-icon"
+                                title="Copy hosted link"><i class="fa-solid fa-copy"></i></button>
                         </div>
                     </div>
                     <div class="drop-modal-btns hosted-result-actions">
@@ -573,24 +803,41 @@
         </div>
     </div>
 
-    <div id="inactivity-modal" class="drop-modal-overlay" style="display:none; z-index: 10001; backdrop-filter: blur(24px); background: var(--inactivity-overlay-bg);">
-        <div class="drop-modal" style="max-width: 420px; border: 2px solid var(--inactivity-border); background: var(--inactivity-bg); padding: 3rem; box-shadow: var(--inactivity-shadow); border-radius: 24px; position: relative; overflow: hidden; text-align: center;">
-            <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--inactivity-grad); pointer-events: none;"></div>
-            <div style="position: absolute; top: -50px; left: -50px; width: 150px; height: 150px; background: var(--inactivity-glow); filter: blur(80px); opacity: 0.12;"></div>
-            
-            <div style="position: relative; width: 80px; height: 80px; margin: 0 auto 1.5rem;">
-                <svg viewBox="0 0 36 36" style="width: 100%; height: 100%; transform: rotate(-90deg);">
-                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--inactivity-stroke-bg)" stroke-width="2" />
-                    <path id="inactivity-svg-ring" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--inactivity-stroke)" stroke-width="2" stroke-dasharray="100, 100" style="transition: stroke-dasharray 1s linear;" />
-                </svg>
-                <div id="inactivity-countdown-text" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 1.5rem; font-weight: 900; color: var(--inactivity-text);">30</div>
+    <div id="inactivity-modal" class="drop-modal-overlay"
+        style="display:none; z-index: 10001; backdrop-filter: blur(24px); background: var(--inactivity-overlay-bg);">
+        <div class="drop-modal"
+            style="max-width: 420px; border: 2px solid var(--inactivity-border); background: var(--inactivity-bg); padding: 3rem; box-shadow: var(--inactivity-shadow); border-radius: 24px; position: relative; overflow: hidden; text-align: center;">
+            <div
+                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--inactivity-grad); pointer-events: none;">
+            </div>
+            <div
+                style="position: absolute; top: -50px; left: -50px; width: 150px; height: 150px; background: var(--inactivity-glow); filter: blur(80px); opacity: 0.12;">
             </div>
 
-            <h2 class="drop-modal-title" style="margin-bottom: 0.75rem; color: var(--inactivity-text); font-size: 1.8rem; letter-spacing: -0.02em;">Inactivity Detected</h2>
-            <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--inactivity-desc); line-height: 1.6; font-size: 1.05rem;">
+            <div style="position: relative; width: 80px; height: 80px; margin: 0 auto 1.5rem;">
+                <svg viewBox="0 0 36 36" style="width: 100%; height: 100%; transform: rotate(-90deg);">
+                    <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none"
+                        stroke="var(--inactivity-stroke-bg)" stroke-width="2" />
+                    <path id="inactivity-svg-ring"
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none"
+                        stroke="var(--inactivity-stroke)" stroke-width="2" stroke-dasharray="100, 100"
+                        style="transition: stroke-dasharray 1s linear;" />
+                </svg>
+                <div id="inactivity-countdown-text"
+                    style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 1.5rem; font-weight: 900; color: var(--inactivity-text);">
+                    30</div>
+            </div>
+
+            <h2 class="drop-modal-title"
+                style="margin-bottom: 0.75rem; color: var(--inactivity-text); font-size: 1.8rem; letter-spacing: -0.02em;">
+                Inactivity Detected</h2>
+            <div class="drop-modal-desc"
+                style="margin-bottom: 2rem; color: var(--inactivity-desc); line-height: 1.6; font-size: 1.05rem;">
                 This workspace will be destroyed to maintain your privacy.
             </div>
-            <button id="inactivity-confirm-btn" class="btn-pill btn-primary" style="width: 100%; height: 60px; font-size: 1.1rem; letter-spacing: 0.05em; font-weight: 800; text-transform: uppercase;">I'M STILL HERE</button>
+            <button id="inactivity-confirm-btn" class="btn-pill btn-primary"
+                style="width: 100%; height: 60px; font-size: 1.1rem; letter-spacing: 0.05em; font-weight: 800; text-transform: uppercase;">I'M
+                STILL HERE</button>
         </div>
     </div>
 
@@ -599,7 +846,8 @@
             <button class="top-close-btn" id="prompt-secret-close" title="Close"><i
                     class="fa-solid fa-xmark"></i></button>
             <h2 class="drop-modal-title" style="margin-bottom: 0.5rem;">Workspace Secret</h2>
-            <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--text-muted);">This workspace is protected. Enter the secret word to join.</div>
+            <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--text-muted);">This workspace is
+                protected. Enter the secret word to join.</div>
             <input type="password" id="prompt-secret-input" class="form-input text-center" placeholder="Secret Word"
                 autocomplete="off">
             <div class="drop-modal-btns" style="margin-top: 1.5rem;">
@@ -613,14 +861,16 @@
         <div class="drop-modal" style="padding: 2.5rem;">
             <button class="top-close-btn" id="settings-close" title="Close"><i class="fa-solid fa-xmark"></i></button>
             <h2 class="drop-modal-title" style="margin-bottom: 0.5rem;">Settings</h2>
-            <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--text-muted);">Configure your secure transfer environment.</div>
+            <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--text-muted);">Configure your secure
+                transfer environment.</div>
 
             <div class="settings-list">
 
                 <div class="settings-item">
                     <div class="settings-info">
                         <div class="settings-label">Stealth Mode</div>
-                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.75rem;">Strip all metadata (EXIF/GPS) from images before sending.</div>
+                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.75rem;">Strip all
+                            metadata (EXIF/GPS) from images before sending.</div>
                     </div>
                     <label class="switch">
                         <input type="checkbox" id="settings-stealth-mode">
@@ -631,7 +881,8 @@
                 <div class="settings-item">
                     <div class="settings-info">
                         <div class="settings-label">Procedural Audio</div>
-                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.75rem;">Play subtle chimes for successful connections and transfers.</div>
+                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.75rem;">Play subtle
+                            chimes for successful connections and transfers.</div>
                     </div>
                     <label class="switch">
                         <input type="checkbox" id="settings-audio" checked>
@@ -642,7 +893,8 @@
                 <div class="settings-item">
                     <div class="settings-info">
                         <div class="settings-label">Detailed Timer</div>
-                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.75rem;">ON shows total rolling minutes (e.g. "90 min"). OFF shows largest unit only (e.g. "1 hr").</div>
+                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.75rem;">ON shows total
+                            rolling minutes (e.g. "90 min"). OFF shows largest unit only (e.g. "1 hr").</div>
                     </div>
                     <label class="switch">
                         <input type="checkbox" id="settings-detailed-timer">
@@ -650,14 +902,19 @@
                     </label>
                 </div>
 
-                <div class="settings-item" style="flex-direction: column; align-items: flex-start; gap: 0.5rem; padding: 1rem 1.25rem;">
+                <div class="settings-item"
+                    style="flex-direction: column; align-items: flex-start; gap: 0.5rem; padding: 1rem 1.25rem;">
                     <div class="settings-info">
                         <div class="settings-label" style="font-size: 0.9rem;">Display Name</div>
-                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.7rem;">Set a display name visible to peers in your workspace.</div>
+                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.7rem;">Persistent
+                            identity. Restricted names require a key.</div>
                     </div>
                     <div style="display: flex; gap: 0.4rem; width: 100%;">
-                        <input type="text" id="settings-user-name" class="form-input" style="flex: 1; max-width: none; height: 32px; font-size: 0.85rem;" placeholder="Enter name...">
-                        <button id="settings-confirm-name" class="btn-pill btn-ghost" style="white-space: nowrap; font-size: 0.7rem; height: 32px; padding: 0 0.75rem; border-color: var(--card-border);">CLAIM</button>
+                        <input type="text" id="settings-user-name" class="form-input"
+                            style="flex: 1; max-width: none; height: 32px; font-size: 0.85rem;"
+                            placeholder="Enter name...">
+                        <button id="settings-confirm-name" class="btn-pill btn-ghost"
+                            style="white-space: nowrap; font-size: 0.7rem; height: 32px; padding: 0 0.75rem; border-color: var(--card-border);">CLAIM</button>
                     </div>
                 </div>
             </div>
@@ -673,33 +930,127 @@
     <script src="hosted-drop.js?v=3" defer></script>
     <script src="app.js?v=3" defer></script>
     <script src="webrtc.js?v=3" defer></script>
-    <div id="sound-nudge" style="display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--accent-emerald); color:#fff; padding:0.75rem 1.5rem; border-radius:999px; z-index:10005; cursor:pointer; box-shadow:0 10px 30px rgba(16,185,129,0.4); font-weight:700; align-items:center; gap:0.75rem;">
+    <div id="sound-nudge"
+        style="display:none; position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--accent-emerald); color:#fff; padding:0.75rem 1.5rem; border-radius:999px; z-index:10005; cursor:pointer; box-shadow:0 10px 30px rgba(16,185,129,0.4); font-weight:700; align-items:center; gap:0.75rem;">
         <i class="fa-solid fa-volume-high"></i>
         <span>ENABLE SOUNDS</span>
     </div>
 
     <div id="destruction-request-modal" class="drop-modal-overlay" style="display:none; z-index: 10002;">
-        <div class="drop-modal" style="max-width: 420px; border: 1px solid var(--accent-danger); background: var(--card-surface); padding: 2.5rem; box-shadow: 0 20px 50px rgba(0,0,0,0.5);">
-            <h2 class="drop-modal-title" style="margin-bottom: 0.75rem; color: var(--accent-danger);">Workspace Termination</h2>
+        <div class="drop-modal"
+            style="max-width: 420px; border: 1px solid var(--accent-danger); background: var(--card-surface); padding: 2.5rem; box-shadow: 0 20px 50px rgba(0,0,0,0.5);">
+            <h2 class="drop-modal-title" style="margin-bottom: 0.75rem; color: var(--accent-danger);">Workspace
+                Termination</h2>
             <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--text-secondary); line-height: 1.6;">
-                <span id="destruction-requester-name" style="color: var(--text-pure); font-weight: 700;">A participant</span> wants to destroy this room. Accepted: <strong id="destruction-request-countdown" style="color: var(--text-pure); font-size: 1.1rem;">0/0</strong>.
+                <span id="destruction-requester-name" style="color: var(--text-pure); font-weight: 700;">A
+                    participant</span> wants to destroy this room. Accepted: <strong id="destruction-request-countdown"
+                    style="color: var(--text-pure); font-size: 1.1rem;">0/0</strong>.
             </div>
             <div id="destruction-vote-lists" style="display:flex; gap:1rem; margin-bottom:1.5rem;">
-                <div style="flex:1; min-width:0; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.18); border-radius:14px; padding:0.9rem;">
-                    <div style="font-size:0.72rem; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; color:var(--accent-emerald); margin-bottom:0.6rem;">Accepted</div>
-                    <div id="destruction-accepted-list" style="display:flex; flex-direction:column; gap:0.45rem; color:var(--text-primary);"></div>
+                <div
+                    style="flex:1; min-width:0; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.18); border-radius:14px; padding:0.9rem;">
+                    <div
+                        style="font-size:0.72rem; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; color:var(--accent-emerald); margin-bottom:0.6rem;">
+                        Accepted</div>
+                    <div id="destruction-accepted-list"
+                        style="display:flex; flex-direction:column; gap:0.45rem; color:var(--text-primary);"></div>
                 </div>
-                <div style="flex:1; min-width:0; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:0.9rem;">
-                    <div style="font-size:0.72rem; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted); margin-bottom:0.6rem;">Still waiting</div>
-                    <div id="destruction-pending-list" style="display:flex; flex-direction:column; gap:0.45rem; color:var(--text-secondary);"></div>
+                <div
+                    style="flex:1; min-width:0; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:0.9rem;">
+                    <div
+                        style="font-size:0.72rem; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted); margin-bottom:0.6rem;">
+                        Still waiting</div>
+                    <div id="destruction-pending-list"
+                        style="display:flex; flex-direction:column; gap:0.45rem; color:var(--text-secondary);"></div>
                 </div>
             </div>
             <div style="display:flex; gap:1rem;">
-                <button id="destruction-reject-btn" class="btn-pill btn-ghost" style="flex: 1; border-color: var(--accent-danger); color: var(--accent-danger);">REJECT</button>
+                <button id="destruction-reject-btn" class="btn-pill btn-ghost"
+                    style="flex: 1; border-color: var(--accent-danger); color: var(--accent-danger);">REJECT</button>
                 <button id="destruction-accept-btn" class="btn-pill btn-danger" style="flex: 1;">ACCEPT</button>
             </div>
         </div>
     </div>
+    <div id="panic-confirm-modal" class="drop-modal-overlay" style="display:none; z-index: 10003;">
+        <div class="drop-modal"
+            style="max-width: 400px; border: 2px solid var(--accent-danger); background: var(--card-surface); padding: 2.5rem; text-align: center;">
+            <h2 class="drop-modal-title" style="color: var(--accent-danger); margin-bottom: 0.75rem;">Panic Mode</h2>
+            <div class="drop-modal-desc" style="margin-bottom: 2rem; color: var(--text-secondary); line-height: 1.6;">
+                This will instantly destroy ALL active sessions, rooms, and hosted links. This cannot be undone.
+            </div>
+            <div style="display:flex; gap: 1rem; justify-content: center;">
+                <button id="panic-cancel-btn" class="btn-pill btn-ghost" style="flex:1;">Cancel</button>
+                <button id="panic-execute-btn" class="btn-pill"
+                    style="flex:1; background: var(--accent-danger); color: #fff; border: none; font-weight: 800;">DESTROY
+                    ALL</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="file-note-modal" class="drop-modal-overlay" style="display:none; z-index: 10003;">
+        <div class="drop-modal"
+            style="max-width: 420px; border: 1px solid var(--accent-emerald); background: var(--card-surface); padding: 2.5rem; text-align: center;">
+            <div
+                style="margin-bottom: 1.5rem; display: flex; justify-content: center; align-items: center; width: 64px; height: 64px; border-radius: 50%; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.2); margin-left: auto; margin-right: auto;">
+                <i class="fa-solid fa-note-sticky" style="font-size: 1.8rem; color: var(--accent-emerald);"></i>
+            </div>
+            <h2 class="drop-modal-title" style="margin-bottom: 0.75rem;">Note from Sender</h2>
+            <div id="file-note-content" class="drop-modal-desc"
+                style="margin-bottom: 2rem; color: var(--text-primary); background: var(--btn-ghost-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 1rem; line-height: 1.7; text-align: left; font-style: italic;">
+            </div>
+            <button id="file-note-ok-btn" class="btn-pill btn-primary" style="width:100%;">Got it, proceed to
+                download</button>
+        </div>
+    </div>
+    <div id="streak-pet-modal" class="drop-modal-overlay" style="display:none; z-index: 10003;">
+        <div id="streak-pet-modal-body" class="drop-modal"
+            style="max-width: 420px; border: 1px solid var(--accent-emerald); background: var(--card-surface); padding: 2.5rem; text-align: center;">
+        </div>
+    </div>
+
+    <!-- Command Palette Modal -->
+    <div id="command-palette-modal" class="drop-modal-overlay"
+        style="display:none; z-index: 10005; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); align-items: flex-start; padding-top: 10vh;">
+        <div class="drop-modal command-palette-card"
+            style="max-width: 540px; width: 90%; background: var(--card-surface); border: 1px solid var(--card-border); padding: 0; overflow: hidden; border-radius: 16px; box-shadow: 0 24px 64px rgba(0,0,0,0.7); text-align: left;">
+            <div
+                style="display: flex; align-items: center; padding: 1.25rem 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.06); gap: 0.75rem;">
+                <i class="fa-solid fa-magnifying-glass" style="color: var(--text-secondary); font-size: 1.1rem;"></i>
+                <input type="text" id="command-palette-input" placeholder="Search actions, shortcuts, and tools..."
+                    style="flex: 1; background: transparent !important; border: none !important; outline: none !important; box-shadow: none !important; -webkit-tap-highlight-color: transparent !important; color: var(--text-primary) !important; font-size: 1.05rem; font-weight: 500; font-family: var(--font-sans);"
+                    autocomplete="off">
+                <span
+                    style="font-size: 0.7rem; font-weight: 700; color: var(--text-muted); background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); padding: 0.25rem 0.5rem; border-radius: 6px; font-family: var(--font-mono);">ESC</span>
+            </div>
+
+            <div id="command-palette-results" style="max-height: 320px; overflow-y: auto; padding: 0.5rem;">
+                <!-- dynamic list items go here -->
+            </div>
+
+            <!-- Contextual inline form (e.g. entering join code or hosted URL) -->
+            <div id="command-palette-form-container"
+                style="display: none; padding: 1.25rem 1.5rem; border-top: 1px solid rgba(255,255,255,0.06); background: rgba(255,255,255,0.01);">
+                <label id="command-palette-form-label"
+                    style="display: block; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent-emerald); margin-bottom: 0.5rem;"></label>
+                <div style="display: flex; gap: 0.75rem;">
+                    <input type="text" id="command-palette-form-input"
+                        style="flex: 1; padding: 0.65rem 0.9rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.02); color: var(--text-primary); font-size: 0.9rem; outline: none; box-sizing: border-box;">
+                    <button id="command-palette-form-submit" class="btn-pill"
+                        style="padding: 0.5rem 1.25rem; font-weight: 700; background: var(--accent-emerald); border: none; color: #000; cursor: pointer; border-radius: 10px;">Execute</button>
+                </div>
+            </div>
+
+            <div
+                style="padding: 0.8rem 1.5rem; border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2);">
+                <span style="font-size: 0.72rem; color: var(--text-muted);">Use <strong
+                        style="color: var(--text-secondary);">↑↓</strong> to navigate, <strong
+                        style="color: var(--text-secondary);">Enter</strong> to select</span>
+                <span style="font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono);">SIGNAL
+                    PALETTE</span>
+            </div>
+        </div>
+    </div>
+
 </body>
 
 </html>

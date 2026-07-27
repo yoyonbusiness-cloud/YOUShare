@@ -1,12 +1,15 @@
 const hostedLinkResuming = {};
 const dismissedHostedLinks = {};
 
+
 function setHostedLinkResuming(token, isResuming) {
   hostedLinkResuming[token] = !!isResuming;
   ActivityTracker.notifyUpdate();
 }
 
+
 const p2pTransferResuming = {};
+
 
 function setP2PTransferResuming(fileId, isResuming) {
   p2pTransferResuming[fileId] = !!isResuming;
@@ -162,7 +165,7 @@ const ActivityTracker = {
         } catch (e) { }
       }
     });
-    
+
     if (this._timerInterval) clearInterval(this._timerInterval);
     this._timerInterval = setInterval(() => {
       this.tickTimers();
@@ -175,21 +178,21 @@ const ActivityTracker = {
 
     const verificationPromises = tokens
       .filter(token => !dismissedHostedLinks[token])
-      .map(token => 
-      fetch(`/drop-info/${token}`)
-        .then(async (res) => {
-          if (!res.ok || res.status === 404) {
-            return { token, exists: false, info: null };
-          }
-          const info = await res.json().catch(() => null);
-          return { token, exists: true, info };
-        })
-        .catch(() => ({
-          token,
-          exists: true,
-          info: null
-        }))
-    );
+      .map(token =>
+        fetch(`/drop-info/${token}`)
+          .then(async (res) => {
+            if (!res.ok || res.status === 404) {
+              return { token, exists: false, info: null };
+            }
+            const info = await res.json().catch(() => null);
+            return { token, exists: true, info };
+          })
+          .catch(() => ({
+            token,
+            exists: true,
+            info: null
+          }))
+      );
 
     Promise.all(verificationPromises).then(results => {
       let hasChanges = false;
@@ -236,14 +239,16 @@ const ActivityTracker = {
     });
   },
 
+  // Force a complete refresh of the activity tracker
   forceRefresh() {
+    // Clear and reload from localStorage
     try {
       const saved = JSON.parse(localStorage.getItem('emit-hosted-links') || '{}');
       this.state.hostedLinks = saved;
     } catch (e) {
       this.state.hostedLinks = {};
     }
-    
+
     this.renderPanel();
   },
 
@@ -264,6 +269,7 @@ const ActivityTracker = {
       } else {
         const el = document.getElementById(`hosted-time-${token}`);
         if (el) {
+          // Always use the latest timer formatting setting from localStorage
           if (window.uiShared && typeof window.uiShared.formatExpiryCountdown === 'function') {
             el.textContent = 'Expires in ' + window.uiShared.formatExpiryCountdown(timeLeft);
           } else {
@@ -360,9 +366,9 @@ const ActivityTracker = {
 
         const text = el.querySelector('.progress-text');
         if (text) text.textContent = `${displayP}% Uploaded`;
-        
+
         if (p >= 100 && this.state.hostedLinks[token].status !== 'ready') {
-           this.notifyUpdate();
+          this.notifyUpdate();
         }
       }
       this.saveThrottled();
@@ -417,6 +423,7 @@ const ActivityTracker = {
       }
       if (data.eta !== undefined) t.eta = data.eta;
 
+
       const el = document.getElementById(`activity-transfer-${fileId}`);
       if (el && this.panelRefs.activityContainer && this.panelRefs.activityContainer.style.display !== 'none') {
         const fill = el.querySelector('.progress-bar-fill');
@@ -443,6 +450,7 @@ const ActivityTracker = {
         if (badge) {
           badge.textContent = t.direction === 'download' ? 'Downloading' : 'Uploading';
         }
+
 
         const oldGraph = el.querySelector('.speed-graph');
         if (t.speedHistory.length > 0) {
@@ -529,19 +537,31 @@ const ActivityTracker = {
           hostedSave[token] = link;
         }
       });
-      localStorage.setItem('emit-hosted-links', JSON.stringify(hostedSave));
+      try {
+        localStorage.setItem('emit-hosted-links', JSON.stringify(hostedSave));
+      } catch (e) {
+        console.error('localStorage error (emit-hosted-links):', e);
+      }
 
       const p2pRoomsSave = {};
       Object.entries(this.state.p2pRooms).forEach(([roomId, room]) => {
         p2pRoomsSave[roomId] = room;
       });
-      localStorage.setItem('emit-p2p-rooms', JSON.stringify(p2pRoomsSave));
+      try {
+        localStorage.setItem('emit-p2p-rooms', JSON.stringify(p2pRoomsSave));
+      } catch (e) {
+        console.error('localStorage error (emit-p2p-rooms):', e);
+      }
 
       const transfersSave = {};
       Object.entries(this.state.transfers).forEach(([fileId, transfer]) => {
         transfersSave[fileId] = transfer;
       });
-      localStorage.setItem('emit-p2p-transfers', JSON.stringify(transfersSave));
+      try {
+        localStorage.setItem('emit-p2p-transfers', JSON.stringify(transfersSave));
+      } catch (e) {
+        console.error('localStorage error (emit-p2p-transfers):', e);
+      }
     } catch (e) { }
   },
 
@@ -549,28 +569,28 @@ const ActivityTracker = {
   saveThrottled() {
     if (this._saveTimeout) return;
     this._saveTimeout = setTimeout(() => {
-        try {
-            const hostedSave = {};
-            Object.entries(this.state.hostedLinks).forEach(([token, link]) => {
-                if (!dismissedHostedLinks[token]) {
-                    hostedSave[token] = link;
-                }
-            });
-            localStorage.setItem('emit-hosted-links', JSON.stringify(hostedSave));
+      try {
+        const hostedSave = {};
+        Object.entries(this.state.hostedLinks).forEach(([token, link]) => {
+          if (!dismissedHostedLinks[token]) {
+            hostedSave[token] = link;
+          }
+        });
+        localStorage.setItem('emit-hosted-links', JSON.stringify(hostedSave));
 
-            const p2pRoomsSave = {};
-            Object.entries(this.state.p2pRooms).forEach(([roomId, room]) => {
-                p2pRoomsSave[roomId] = room;
-            });
-            localStorage.setItem('emit-p2p-rooms', JSON.stringify(p2pRoomsSave));
+        const p2pRoomsSave = {};
+        Object.entries(this.state.p2pRooms).forEach(([roomId, room]) => {
+          p2pRoomsSave[roomId] = room;
+        });
+        localStorage.setItem('emit-p2p-rooms', JSON.stringify(p2pRoomsSave));
 
-            const transfersSave = {};
-            Object.entries(this.state.transfers).forEach(([fileId, transfer]) => {
-                transfersSave[fileId] = transfer;
-            });
-            localStorage.setItem('emit-p2p-transfers', JSON.stringify(transfersSave));
-        } catch (e) { }
-        this._saveTimeout = null;
+        const transfersSave = {};
+        Object.entries(this.state.transfers).forEach(([fileId, transfer]) => {
+          transfersSave[fileId] = transfer;
+        });
+        localStorage.setItem('emit-p2p-transfers', JSON.stringify(transfersSave));
+      } catch (e) { }
+      this._saveTimeout = null;
     }, 1000);
   },
 
@@ -581,28 +601,38 @@ const ActivityTracker = {
       if (panel) this.panelRefs.actionSelection = panel;
     }
     if (!panel) return;
-    
+
     let container = this.panelRefs.activityContainer;
     if (!container) {
+      container = panel.querySelector('.activity-tracker-container');
+      if (!container) {
+        this.setupPanelStructure();
         container = panel.querySelector('.activity-tracker-container');
-        if (!container) {
-            this.setupPanelStructure();
-            container = panel.querySelector('.activity-tracker-container');
-        }
-        if (container) this.panelRefs.activityContainer = container;
+      }
+      if (container) this.panelRefs.activityContainer = container;
     }
     if (!container) return;
 
+
+
     const hasActivity = this.hasActivity();
-    const cardBody = panel.querySelector('.card-body');
+    const trackerBody = document.getElementById('activity-tracker-body');
+    const discoveryTab = document.getElementById('activity-tab-discovery');
+    const isDiscoveryActive = discoveryTab && discoveryTab.classList.contains('active');
+
+    if (isDiscoveryActive) {
+      container.style.display = 'none';
+      if (trackerBody) trackerBody.style.display = 'none';
+      return;
+    }
 
     if (!hasActivity) {
-      if (cardBody) cardBody.style.display = 'flex';
+      if (trackerBody) trackerBody.style.display = 'block';
       container.style.display = 'none';
       return;
     }
 
-    if (cardBody) cardBody.style.display = 'none';
+    if (trackerBody) trackerBody.style.display = 'none';
     container.style.display = 'flex';
     container.innerHTML = this.renderActivityContent();
   },
@@ -620,11 +650,6 @@ const ActivityTracker = {
       sections.push(this.renderHostedLinksSection());
     }
 
-    const transferCount = Object.keys(this.state.transfers).length;
-    if (transferCount > 0) {
-      sections.push(this.renderTransfersSection());
-    }
-
     return `
       <div class="activity-content">
         ${sections.join('')}
@@ -640,6 +665,7 @@ const ActivityTracker = {
       const peerCount = room.peers ? room.peers.length : 0;
       const peerNames = room.peers ? room.peers.map(p => (typeof p === 'string' ? p : (p.name || 'User'))).join(', ') : '';
       const uptime = this.formatUptime(Date.now() - room.createdAt);
+
 
       return `
         <div class="activity-item clickable" onclick="ActivityTracker.switchToRoom('${this.escapeHtml(roomId)}')" id="activity-room-${roomId}">
@@ -660,7 +686,6 @@ const ActivityTracker = {
               </button>
             </div>
           </div>
-          ${peerCount > 0 ? `<div class="activity-peer-list">${this.escapeHtml(peerNames)}</div>` : ''}
         </div>
       `;
 
@@ -669,9 +694,10 @@ const ActivityTracker = {
     return `
       <div class="activity-section">
         <div class="activity-section-header">
-          <i class="fa-solid fa-server"></i>
-          <span class="section-title">P2P Rooms</span>
-          <span class="section-count">${rooms.length}</span>
+          <div style="display:flex; align-items:center;">
+            <i class="fa-solid fa-server"></i>
+            <span class="section-title">P2P Rooms <span class="section-count">${rooms.length}</span></span>
+          </div>
         </div>
         <div class="activity-section-items">
           ${roomItems}
@@ -702,11 +728,11 @@ const ActivityTracker = {
             </div>
             <div class="activity-item-info">
               <div class="activity-item-title">
-                ${link.url ? `<a href="${link.url}" target="_blank" class="activity-item-link" onclick="event.stopPropagation()">${this.escapeHtml(displayName)}</a>` : this.escapeHtml(displayName)}
+                ${link.url ? `<a href="${link.url}" target="_blank" class="activity-item-link" onclick="event.stopPropagation()">${this.escapeHtml(displayName)}</a>` : `<span class="activity-item-title-link">${this.escapeHtml(displayName)}</span>`}
               </div>
               <div class="activity-item-details">
                 <span class="detail-text">${sizeStr}</span>
-                ${isReady && link.expiresAt ? `<span class="detail-text" id="hosted-time-${this.escapeHtml(token)}">Expires in ${timeRemaining}</span>` : `<span class="detail-text">${link.status === 'preparing' ? 'Preparing...' : (link.status === 'uploading' ? 'Uploading...' : 'Finalizing...')}</span>`}
+                ${isReady ? (link.expiresAt ? `<span class="detail-text" id="hosted-time-${this.escapeHtml(token)}">Expires in ${timeRemaining}</span>` : `<span class="detail-text">Ready</span>`) : `<span class="detail-text">${link.status === 'preparing' ? 'Preparing...' : (link.status === 'uploading' ? 'Uploading...' : 'Finalizing...')}</span>`}
               </div>
             </div>
             <div class="activity-item-actions">
@@ -731,9 +757,10 @@ const ActivityTracker = {
     return `
       <div class="activity-section">
         <div class="activity-section-header">
-          <i class="fa-solid fa-link"></i>
-          <span class="section-title">Hosted Links</span>
-          <span class="section-count">${links.length}</span>
+          <div style="display:flex; align-items:center;">
+            <i class="fa-solid fa-link"></i>
+            <span class="section-title">Hosted Links <span class="section-count">${links.length}</span></span>
+          </div>
         </div>
         <div class="activity-section-items">
           ${linkItems}
@@ -793,9 +820,10 @@ const ActivityTracker = {
     return `
       <div class="activity-section">
         <div class="activity-section-header">
-          <i class="fa-solid fa-arrows-up-down"></i>
-          <span class="section-title">Transfers</span>
-          <span class="section-count">${transfers.length}</span>
+          <div style="display:flex; align-items:center;">
+            <i class="fa-solid fa-arrows-up-down"></i>
+            <span class="section-title">Transfers <span class="section-count">${transfers.length}</span></span>
+          </div>
         </div>
         <div class="activity-section-items">
           ${transferItems}
@@ -866,17 +894,18 @@ const ActivityTracker = {
   reopenHostedTransfer(token) {
     const link = this.state.hostedLinks[token];
     if (!link) return;
-    
+
+    // Set as active so restore logic knows what to do
     localStorage.setItem('emit-active-hosted-token', token);
     localStorage.setItem('emit-active-hosted-state', link.status === 'ready' ? 'finished' : 'active');
     if (link.url) localStorage.setItem('emit-active-hosted-url', link.url);
-    
+
     if (link.status !== 'ready' && typeof window.showHostedLiveUploadModal === 'function' && window.showHostedLiveUploadModal(token)) {
       return;
     }
 
     if (typeof window.restoreHostedTransferUI === 'function') {
-        window.restoreHostedTransferUI(token, link.status === 'ready' ? 'finished' : 'active');
+      window.restoreHostedTransferUI(token, link.status === 'ready' ? 'finished' : 'active');
     }
   },
   async handleTransferAction(fileId) {
@@ -895,7 +924,7 @@ const ActivityTracker = {
       const cleanRoom = activeRoomId ? activeRoomId.toString().trim().toUpperCase() : '';
       const cleanSig = activeSignalingId ? activeSignalingId.toString().trim().toUpperCase() : '';
       const isCurrentActiveRoom = (cleanRoom && (cleanTarget === cleanRoom || cleanRoom.includes(cleanTarget) || cleanTarget.includes(cleanRoom))) ||
-                                  (cleanSig && (cleanTarget === cleanSig || cleanSig.includes(cleanTarget) || cleanTarget.includes(cleanSig)));
+        (cleanSig && (cleanTarget === cleanSig || cleanSig.includes(cleanTarget) || cleanTarget.includes(cleanSig)));
       if (isCurrentActiveRoom && typeof window.forceLeave === 'function') {
         window.forceLeave(true);
       } else {
@@ -903,11 +932,11 @@ const ActivityTracker = {
       }
     };
     if (el) {
-        if (typeof playProceduralSound === 'function') playProceduralSound('pop');
-        el.classList.add('vanish-sand');
-        setTimeout(performClose, 800);
+      if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+      el.classList.add('vanish-sand');
+      setTimeout(performClose, 800);
     } else {
-        performClose();
+      performClose();
     }
   },
 
@@ -949,15 +978,15 @@ const ActivityTracker = {
   handleTransferClose(fileId) {
     const el = document.getElementById(`activity-transfer-${fileId}`);
     if (el) {
-        if (typeof playProceduralSound === 'function') playProceduralSound('pop');
-        el.classList.add('vanish-sand');
-        setTimeout(() => {
-            this.removeTransfer(fileId);
-            window.dispatchEvent(new CustomEvent('cancel-transfer', { detail: { fileId } }));
-        }, 800);
-    } else {
+      if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+      el.classList.add('vanish-sand');
+      setTimeout(() => {
         this.removeTransfer(fileId);
         window.dispatchEvent(new CustomEvent('cancel-transfer', { detail: { fileId } }));
+      }, 800);
+    } else {
+      this.removeTransfer(fileId);
+      window.dispatchEvent(new CustomEvent('cancel-transfer', { detail: { fileId } }));
     }
   },
 

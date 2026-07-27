@@ -1,3 +1,51 @@
+// Hosted Resume Modal Logic (restored)
+window.showHostedResumeModal = function (token, filenames, onResume) {
+    let modal = document.getElementById('hosted-resume-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'hosted-resume-modal';
+        modal.className = 'drop-modal-overlay';
+        modal.innerHTML = `
+            <div class="drop-modal" style="max-width:420px;">
+                <div class="hosted-resume-panel">
+                    <div class="hosted-resume-title">Resume Upload?</div>
+                    <div class="hosted-resume-copy">A previous upload for this file was interrupted.<br>Would you like to resume?</div>
+                    <div class="hosted-resume-files">
+                        ${filenames.map(f => `<div class='resume-file-item'><i class="fa-solid fa-file"></i><span>${f}</span></div>`).join('')}
+                    </div>
+                    <button class="btn-pill btn-primary hosted-resume-btn" id="hosted-resume-confirm">Resume Upload</button>
+                    <button class="btn-pill btn-ghost hosted-resume-btn" id="hosted-resume-cancel">Cancel</button>
+                    <div class="hosted-resume-footnote">If you cancel, the upload will start over from the beginning.</div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+    modal.style.display = 'flex';
+    document.getElementById('hosted-resume-confirm').onclick = function () {
+        modal.style.display = 'none';
+        if (onResume) onResume();
+    };
+    document.getElementById('hosted-resume-cancel').onclick = function () {
+        modal.style.display = 'none';
+    };
+};
+
+
+// Hosted upload resume modal logic (restored)
+window.checkAndShowHostedResume = function (token, file, onResume) {
+    const resumeState = window.loadHostedResumeState(token);
+    if (!resumeState) return false;
+    if (resumeState.fileName !== file.name || resumeState.fileSize !== file.size) return false;
+    if (resumeState.chunks && resumeState.chunks.length > 0 && resumeState.chunks.length < resumeState.chunkCount) {
+        window.showHostedResumeModal(token, [file.name], function () {
+            if (typeof ActivityTracker !== 'undefined') ActivityTracker.setHostedLinkResuming(token, true);
+            onResume();
+        });
+        return true;
+    }
+    return false;
+};
 const socket = io({ transports: ['websocket'] });
 let myPersistentId = null;
 let myTabSessionId = null;
@@ -6,16 +54,16 @@ let roomId = null;
 let signalingId = null;
 let lastJoinEmit = null;
 
-try {
-    const savedWorkspace = localStorage.getItem('ys_workspace');
-    if (savedWorkspace) {
-        const savedGuard = localStorage.getItem('ys_guard') || '';
-        roomId = savedWorkspace;
-        signalingId = savedGuard ? `${savedWorkspace}:${savedGuard}` : savedWorkspace;
+socket.on('public-rooms-list', (rooms) => {
+    if (!Array.isArray(rooms)) return;
+    window._cachedPublicRooms = rooms;
+    if (typeof renderPublicRoomsList === 'function') {
+        const discoveryBody = document.getElementById('activity-discovery-body');
+        if (discoveryBody && discoveryBody.style.display !== 'none') {
+            renderPublicRoomsList(rooms);
+        }
     }
-    window._pendingIsCreator = localStorage.getItem('ys_is_creator') === 'true';
-    window._pendingPassphrase = localStorage.getItem('ys_guard') || '';
-} catch (e) {}
+});
 
 socket.on('connect', () => {
     window.isShadowTab = false;
@@ -28,7 +76,7 @@ socket.on('connect', () => {
             if (reconnectGuard) localStorage.setItem('ys_guard', reconnectGuard);
             else localStorage.removeItem('ys_guard');
             localStorage.setItem('ys_is_creator', window._pendingIsCreator ? 'true' : 'false');
-        } catch (e) {}
+        } catch (e) { }
         let myName = localStorage.getItem('ys_persistent_name') || sessionStorage.getItem('ys_user_name');
         if (!myName) {
             myName = `User-${Math.floor(Math.random() * 9000 + 1000)}`;
@@ -42,12 +90,12 @@ socket.on('connect', () => {
         if (!myPersistentId) {
             try {
                 myPersistentId = localStorage.getItem('emit-persistent-id') || sessionStorage.getItem('emit-persistent-id');
-            } catch (e) {}
+            } catch (e) { }
         }
         if (!myTabSessionId) {
             try {
                 myTabSessionId = sessionStorage.getItem('emit-tab-session-id');
-            } catch (e) {}
+            } catch (e) { }
         }
         if (!myPersistentId) {
             if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -57,10 +105,10 @@ socket.on('connect', () => {
             }
             try {
                 localStorage.setItem('emit-persistent-id', myPersistentId);
-            } catch (e) {}
+            } catch (e) { }
             try {
                 sessionStorage.setItem('emit-persistent-id', myPersistentId);
-            } catch (e) {}
+            } catch (e) { }
         }
         if (!myTabSessionId) {
             if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -70,19 +118,20 @@ socket.on('connect', () => {
             }
             try {
                 sessionStorage.setItem('emit-tab-session-id', myTabSessionId);
-            } catch (e) {}
+            } catch (e) { }
         }
         const persistentId = myPersistentId;
-        const joinSignature = JSON.stringify({ signalingId, isCreator: !!window._pendingIsCreator, persistentId, tabSessionId: myTabSessionId, socketId: socket.id });
+        const joinSignature = JSON.stringify({ signalingId, isCreator: !!window._pendingIsCreator, persistentId, tabSessionId: myTabSessionId, socketId: socket.id, isSpectator: !!window.isSpectator });
         if (lastJoinEmit !== joinSignature) {
             lastJoinEmit = joinSignature;
-            socket.emit('join-room', signalingId, window._pendingIsCreator || false, { name: myName, inactivity: inactivityMins, persistentId, tabSessionId: myTabSessionId });
+            const isPublic = !!document.getElementById('public-room-checkbox')?.checked;
+            socket.emit('join-room', signalingId, window._pendingIsCreator || false, { name: myName, inactivity: inactivityMins, persistentId, tabSessionId: myTabSessionId, isPublic: isPublic, isSpectator: !!window.isSpectator });
         }
     }
 });
-let peers = {}; 
+let peers = {};
 window.peers = peers;
-let peerId = null; 
+let peerId = null;
 let serverTimeOffset = 0;
 let latestRoomMetadata = null;
 
@@ -136,9 +185,9 @@ function hasUsablePeerConnection(peer) {
 
 syncDebugState();
 let audioContextEnabled = false;
-let pendingCandidates = {}; 
+let pendingCandidates = {};
 
-let pendingOffers = {}; 
+let pendingOffers = {};
 
 let myECDHKeyPair = null;
 let zeroTrustKey = null;
@@ -410,7 +459,7 @@ async function restorePersistedP2PTransfers() {
                     type: entry.fileMeta.type || '',
                     nickname: entry.fileMeta.nickname || entry.nickname || ''
                 } : null),
-                chunkIndex: Math.max(0, Math.floor(((entry.progress ?? 0) / 100) * Math.ceil(entry.fileSize / CHUNK_SIZE))),
+                chunkIndex: entry.chunkIndex ?? Math.max(0, Math.floor(((entry.progress ?? 0) / 100) * Math.ceil(entry.fileSize / CHUNK_SIZE))),
                 paused: true,
                 aborted: false,
                 fileId: entry.fileId,
@@ -652,6 +701,7 @@ function persistPausedSend(fileId, peerName, progress = null) {
         targetId: state?.targetId || persisted?.targetId || null,
         peerName: peerName || 'peer',
         progress: pct,
+        chunkIndex: state?.chunkIndex ?? persisted?.chunkIndex ?? Math.max(0, Math.floor(((pct ?? 0) / 100) * Math.ceil((fileRef.size || persisted?.fileSize || 1) / CHUNK_SIZE))),
         fileMeta: {
             name: fileRef.name,
             size: fileRef.size,
@@ -676,7 +726,7 @@ function clearPersistedTransferArtifacts(fileId) {
     if (!fileId) return;
     clearPersistedPausedSend(fileId);
     clearPersistedPartialReceive(fileId);
-    clearCachedP2PSendFile(fileId).catch(() => {});
+    clearCachedP2PSendFile(fileId).catch(() => { });
     if (typeof ActivityTracker !== 'undefined') {
         ActivityTracker.removeTransfer(fileId);
     }
@@ -799,6 +849,9 @@ function markSendPaused(fileId, peerName, progress = null) {
                     latestState.peerName = resolvedPeer.name || latestState.peerName || peerName;
                     const fileToResume = latestState.file;
                     fileToResume.nickname = fileToResume.nickname || persistedState?.nickname || persistedState?.fileMeta?.nickname || '';
+                    setResumeButtonState(fileId, false, null);
+                    const oldRow = document.getElementById(`item-${fileId}`);
+                    if (oldRow) oldRow.remove();
                     delete activeSends[fileId];
                     await sendFile(fileToResume, resolvedPeer.id, fileToResume.nickname || '');
                     return;
@@ -825,23 +878,23 @@ function markSendPaused(fileId, peerName, progress = null) {
                 }
                 return;
             }
-        if (!latestPeer || !latestPeer.dc || latestPeer.dc.readyState !== 'open') {
-            updateTransferProgress(fileId, pct, `Paused - waiting for ${peerName}`, '', '');
-            showToast('Still Waiting', `${peerName} is not connected yet.`, 'info');
-            return;
-        }
-        latestState.targetId = latestPeer.id || latestState.targetId;
-        latestState.peerName = latestPeer.name || latestState.peerName || peerName;
-        latestState.paused = false;
-        setResumeButtonState(fileId, false, null);
-        updateTransferProgress(fileId, pct, `Resuming to ${latestPeer.name}`, '', '');
-        if (typeof ActivityTracker !== 'undefined') {
-            ActivityTracker.updateTransfer(fileId, {
-                paused: false,
-                pausedLabel: ''
-            });
-        }
-        resumeSendFile(fileId, latestPeer.id || latestState.targetId);
+            if (!latestPeer || !latestPeer.dc || latestPeer.dc.readyState !== 'open') {
+                updateTransferProgress(fileId, pct, `Paused - waiting for ${peerName}`, '', '');
+                showToast('Still Waiting', `${peerName} is not connected yet.`, 'info');
+                return;
+            }
+            latestState.targetId = latestPeer.id || latestState.targetId;
+            latestState.peerName = latestPeer.name || latestState.peerName || peerName;
+            latestState.paused = false;
+            setResumeButtonState(fileId, false, null);
+            updateTransferProgress(fileId, pct, `Resuming to ${latestPeer.name}`, '', '');
+            if (typeof ActivityTracker !== 'undefined') {
+                ActivityTracker.updateTransfer(fileId, {
+                    paused: false,
+                    pausedLabel: ''
+                });
+            }
+            resumeSendFile(fileId, latestPeer.id || latestState.targetId);
         };
         tryResume();
     });
@@ -888,13 +941,18 @@ function sendDestroyRequest() {
     const persistentId = myPersistentId || localStorage.getItem('emit-persistent-id');
     if (peerCount === 0) {
         socket.emit('destroy-room', signalingId);
-        if (roomId && typeof ActivityTracker !== 'undefined') {
-            ActivityTracker.handleRoomClose(roomId);
-        } else {
-            performWipe(true);
-        }
         showToast('Workspace Wiped', 'Workspace destroyed successfully.', 'success');
+        if (ui.panels.destroyModal) ui.panels.destroyModal.style.display = 'none';
+        animateVanishAndClear(true).then(() => {
+            if (roomId && typeof ActivityTracker !== 'undefined') {
+                ActivityTracker.handleRoomClose(roomId);
+            } else {
+                performWipe(true);
+            }
+        });
+        return;
     } else {
+        window.isDestructionRequester = true;
         socket.emit('request-destruction', persistentId);
         showToast('Destruction Requested', `Waiting for all ${peerCount + 1} people to accept...`, 'info');
     }
@@ -908,7 +966,7 @@ if (ui.buttons.destroyConfirm) {
 if (ui.buttons.destroyCancel) {
     ui.buttons.destroyCancel.onclick = () => {
         ui.panels.destroyModal.style.display = 'none';
-        
+
         socket.emit('peer-destroy-reject', signalingId);
     };
 }
@@ -919,12 +977,14 @@ if (ui.buttons.destroy) {
         const peerCount = Object.keys(peers).length;
         if (peerCount === 0) {
             socket.emit('destroy-room', signalingId);
-            if (roomId && typeof ActivityTracker !== 'undefined') {
-                ActivityTracker.handleRoomClose(roomId);
-            } else {
-                performWipe(true);
-            }
             showToast('Workspace Wiped', 'Workspace destroyed successfully.', 'success');
+            animateVanishAndClear(true).then(() => {
+                if (roomId && typeof ActivityTracker !== 'undefined') {
+                    ActivityTracker.handleRoomClose(roomId);
+                } else {
+                    performWipe(true);
+                }
+            });
         } else {
             const textEl = document.getElementById('destroy-request-text');
             const confirmBtn = document.getElementById('destroy-confirm-btn');
@@ -943,15 +1003,15 @@ if (ui.buttons.destroy) {
 
 socket.on('peer-destroy-request', () => {
     if (typeof playProceduralSound === 'function') playProceduralSound('chime');
-    
+
     const textEl = document.getElementById('destroy-request-text');
     const confirmBtn = document.getElementById('destroy-confirm-btn');
-    
+
     if (textEl) {
         textEl.textContent = "Your peer is requesting to instantly wipe this workspace and disconnect everyone. Do you agree?";
         textEl.style.color = "var(--accent-red)";
     }
-    
+
     if (confirmBtn) {
         confirmBtn.textContent = "Agree & Wipe";
         confirmBtn.onclick = () => {
@@ -990,7 +1050,7 @@ function animateVanishAndClear(fullPage = false) {
                 if (typeof playProceduralSound === 'function') playProceduralSound('chime');
             }
         } else if (container) {
-        elementsToVanish = Array.from(container.querySelectorAll('.transfer-item'));
+            elementsToVanish = Array.from(container.querySelectorAll('.transfer-item'));
         }
 
         if (elementsToVanish.length === 0) {
@@ -1069,9 +1129,7 @@ async function performWipe(fullPage = false) {
         const preservedReceiveResumeState = !fullPage ? localStorage.getItem(P2P_RESUME_STORAGE_KEY) : null;
         const preservedSendResumeState = !fullPage ? localStorage.getItem(P2P_SEND_RESUME_STORAGE_KEY) : null;
         const preservedTransferActivityState = !fullPage ? localStorage.getItem('emit-p2p-transfers') : null;
-        if (!(shouldPreserveSessionState && !fullPage)) {
-            await animateVanishAndClear(fullPage);
-        }
+
         if (p2pTimerInterval) {
             clearInterval(p2pTimerInterval);
             p2pTimerInterval = null;
@@ -1155,7 +1213,7 @@ async function performWipe(fullPage = false) {
                 socket.emit('peer-destroy-reject', signalingId);
             };
         }
-        
+
         if (window._expiryInterval) clearInterval(window._expiryInterval);
         if (inactivityGraceInterval) clearInterval(inactivityGraceInterval);
         if (ui.panels.inactivityModal) ui.panels.inactivityModal.style.display = 'none';
@@ -1163,14 +1221,18 @@ async function performWipe(fullPage = false) {
         ui.panels.destroyModal.style.display = 'none';
         ui.panels.leaveModal.style.display = 'none';
 
-        if (window.history && window.history.pushState && !(shouldPreserveSessionState && !fullPage)) {
-            window.history.pushState({}, '', window.location.pathname);
-        }
-        if (!(shouldPreserveSessionState && !fullPage)) {
-            showScreen('room');
-        }
-        if (!shouldPreserveSessionState) {
-            updateConnectionStatus('disconnected', 'Offline');
+        if (typeof window.closeTab === 'function' && window.activeTabId && window.activeTabId !== 'home') {
+            window.closeTab(window.activeTabId);
+        } else {
+            if (window.history && window.history.pushState && !(shouldPreserveSessionState && !fullPage)) {
+                window.history.pushState({}, '', window.location.pathname);
+            }
+            if (!(shouldPreserveSessionState && !fullPage)) {
+                showScreen('room');
+            }
+            if (!shouldPreserveSessionState) {
+                updateConnectionStatus('disconnected', 'Offline');
+            }
         }
     } finally {
         isWiping = false;
@@ -1203,7 +1265,7 @@ ui.buttons.leaveConfirm.addEventListener('click', () => {
     }
 });
 
-window.forceLeave = function(reason = 'standard', fullPage = true) {
+window.forceLeave = function (reason = 'standard', fullPage = true) {
     let actualReason = reason;
     let actualFullPage = fullPage;
     if (typeof reason === 'boolean') {
@@ -1216,7 +1278,7 @@ window.forceLeave = function(reason = 'standard', fullPage = true) {
     performWipe(actualFullPage);
 };
 
-window.leaveRoom = function() {
+window.leaveRoom = function () {
     if (roomId) {
         if (ui.panels.leaveModal) ui.panels.leaveModal.style.display = 'flex';
     } else {
@@ -1275,11 +1337,14 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
     }
 
     let secret = secretParam;
-    if (secret === undefined && ui.inputs.joinSecret) {
+    if ((secret === undefined || secret === null || secret === '') && ui.inputs.joinSecret && ui.inputs.joinSecret.value.trim()) {
         secret = ui.inputs.joinSecret.value.trim();
     }
+    if (secret === undefined || secret === null) {
+        const urlParams = new URLSearchParams(window.location.search);
+        secret = urlParams.get('guard') || '';
+    }
 
-    
     let normalizedId = id.toUpperCase().replace(/[^A-Z0-9-]/g, '');
     if (normalizedId.length === 8 && !normalizedId.includes('-')) {
         normalizedId = normalizedId.slice(0, 4) + '-' + normalizedId.slice(4, 8);
@@ -1293,6 +1358,35 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
     const rawId = normalizedId;
     const finalId = normalizedId + (secret ? ":" + secret : "");
     id = normalizedId;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlOpen = urlParams.get('open');
+    const urlClose = urlParams.get('close');
+
+    const activeRoomScheduleMap = JSON.parse(localStorage.getItem('ys_rooms_schedule') || '{}');
+    const hadConfigPreload = !!activeRoomScheduleMap[rawId];
+
+    if (urlOpen && urlClose) {
+        activeRoomScheduleMap[rawId] = { open: urlOpen, close: urlClose };
+        localStorage.setItem('ys_rooms_schedule', JSON.stringify(activeRoomScheduleMap));
+    }
+
+    if (activeRoomScheduleMap[rawId]) {
+        const { open, close } = activeRoomScheduleMap[rawId];
+        if (typeof isCurrentTimeInSchedule === 'function' && !isCurrentTimeInSchedule(open, close)) {
+            showToast('Workspace Closed', `This recurring workspace opens daily from ${open} to ${close}.`, 'error');
+            return;
+        }
+        if (hadConfigPreload && !(urlOpen && urlClose)) {
+            isCreator = true;
+        }
+    }
+    const openTime = document.getElementById('recurring-open-time') ? document.getElementById('recurring-open-time').value : '';
+    const closeTime = document.getElementById('recurring-close-time') ? document.getElementById('recurring-close-time').value : '';
+    if (openTime && closeTime) {
+        scheduleConfig[rawId] = { open: openTime, close: closeTime };
+        localStorage.setItem('ys_rooms_schedule', JSON.stringify(scheduleConfig));
+    }
 
     const isSecure = window.isSecureContext && window.crypto && window.crypto.subtle;
     if (isSecure) {
@@ -1312,16 +1406,17 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
         signalingId: finalId,
         secret,
         isCreator,
-        inviteUrl: `${window.location.origin}${window.location.pathname}?workspace=${rawId}`
+        inviteUrl: `${window.location.origin}${window.location.pathname}?workspace=${rawId}${secret ? "&guard=" + encodeURIComponent(secret) : ""}`
     };
     syncDebugState();
-    try {
-        localStorage.setItem('ys_workspace', rawId);
-        if (secret) localStorage.setItem('ys_guard', secret);
-        else localStorage.removeItem('ys_guard');
-        localStorage.setItem('ys_is_creator', isCreator ? 'true' : 'false');
-    } catch (e) {}
+
     if (isCreator) {
+        try {
+            localStorage.setItem('ys_workspace', rawId);
+            if (secret) localStorage.setItem('ys_guard', secret);
+            else localStorage.removeItem('ys_guard');
+            localStorage.setItem('ys_is_creator', 'true');
+        } catch (e) { }
         ui.text.currentRoom.textContent = roomId;
         if (ui.text.displayRoomCode) ui.text.displayRoomCode.textContent = roomId;
     }
@@ -1343,10 +1438,6 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
         if (window.history && window.history.pushState) {
             window.history.pushState({ workspace: roomId, guard: secret }, '', inviteUrl);
         }
-        localStorage.setItem('ys_workspace', roomId);
-        if (secret) localStorage.setItem('ys_guard', secret);
-        else localStorage.removeItem('ys_guard');
-        localStorage.setItem('ys_is_creator', 'true');
     }
 
     let myName = localStorage.getItem('ys_persistent_name') || sessionStorage.getItem('ys_user_name');
@@ -1363,12 +1454,12 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
     if (!myPersistentId) {
         try {
             myPersistentId = localStorage.getItem('emit-persistent-id') || sessionStorage.getItem('emit-persistent-id');
-        } catch (e) {}
+        } catch (e) { }
     }
     if (!myTabSessionId) {
         try {
             myTabSessionId = sessionStorage.getItem('emit-tab-session-id');
-        } catch (e) {}
+        } catch (e) { }
     }
     if (!myPersistentId) {
         if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -1378,10 +1469,10 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
         }
         try {
             localStorage.setItem('emit-persistent-id', myPersistentId);
-        } catch (e) {}
+        } catch (e) { }
         try {
             sessionStorage.setItem('emit-persistent-id', myPersistentId);
-        } catch (e) {}
+        } catch (e) { }
     }
     if (!myTabSessionId) {
         if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -1391,22 +1482,38 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
         }
         try {
             sessionStorage.setItem('emit-tab-session-id', myTabSessionId);
-        } catch (e) {}
+        } catch (e) { }
     }
     const persistentId = myPersistentId;
     const joinSignature = JSON.stringify({ signalingId, isCreator: !!isCreator, persistentId, tabSessionId: myTabSessionId, socketId: socket.id });
     lastJoinEmit = joinSignature;
-    socket.emit('join-room', signalingId, isCreator, { name: myName, inactivity: inactivityMins, persistentId, tabSessionId: myTabSessionId });
+    window.isPublicRoomSession = !!document.getElementById('public-room-checkbox')?.checked;
+    const pendingPublic = window._pendingPublicRoom || {};
+    const activeSchedule = activeRoomScheduleMap[rawId] || null;
+    socket.emit('join-room', signalingId, isCreator, {
+        name: myName,
+        inactivity: inactivityMins,
+        persistentId,
+        tabSessionId: myTabSessionId,
+        isPublic: window.isPublicRoomSession,
+        roomName: pendingPublic.roomName || '',
+        roomDesc: pendingPublic.roomDesc || '',
+        isSpectator: !!window.isSpectator,
+        scheduleOpen: activeSchedule ? activeSchedule.open : null,
+        scheduleClose: activeSchedule ? activeSchedule.close : null
+    });
+    window._pendingPublicRoom = null;
 
     if (isCreator && typeof ActivityTracker !== 'undefined') {
         ActivityTracker.addP2PRoom(roomId, { name: roomId });
     }
 
-    if (isCreator || hasPersistedTransferActivityForCurrentRoom()) {
+    if (isCreator) {
         showScreen('transfer');
-        updateConnectionStatus(isCreator ? 'waiting' : 'connecting');
-    } else {
-        updateConnectionStatus('connecting');
+    }
+    updateConnectionStatus(isCreator ? 'waiting' : 'connecting');
+    if (isCreator && !hasPersistedTransferActivityForCurrentRoom()) {
+        updateConnectionStatus('connected');
     }
 
     if (hasPersistedTransferState) {
@@ -1427,8 +1534,25 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
         textEl.textContent = 'No time specified';
     }
 
+    if (isCreator && window.tabStates) {
+        const tabId = 'room-' + rawId;
+        if (!window.tabStates[tabId]) {
+            window.tabStates[tabId] = {
+                id: tabId, name: rawId, roomId: rawId, signalingId: finalId,
+                peers: {}, activeSends: {}, activeReceives: {}, receiveBuffer: {},
+                receivedChunks: {}, p2pTransferQueue: [], activeP2PCount: 0,
+                chatHtml: '', peerListHtml: '', transfersHtml: '', socket: socket
+            };
+        }
+        window.activeTabId = tabId;
+        if (typeof window.renderTabsUI === 'function') window.renderTabsUI();
+    }
+
     updatePeerListUI();
     syncDebugState();
+    if (typeof ActivityTracker !== 'undefined' && typeof ActivityTracker.forceRefresh === 'function') {
+        ActivityTracker.forceRefresh();
+    }
 }
 
 socket.on('room-locked', () => {
@@ -1442,14 +1566,6 @@ socket.on('room-locked', () => {
 });
 
 socket.on('room-not-found', () => {
-    const expectedRoomId = pendingJoinState?.roomId || roomId || localStorage.getItem('ys_workspace') || null;
-    const urlWorkspace = new URL(window.location.href).searchParams.get('workspace');
-    if (urlWorkspace && expectedRoomId && urlWorkspace.toUpperCase() !== expectedRoomId.toUpperCase()) {
-        return;
-    }
-    if (urlWorkspace && expectedRoomId && urlWorkspace.toUpperCase() === expectedRoomId.toUpperCase()) {
-        return;
-    }
     showToast('Vault Not Found', 'Invalid code or the creator has not joined yet.', 'error');
     const failedRoomId = roomId;
     const hasPersistedTransferState = Object.keys(loadP2PResumeState()).length > 0 || Object.keys(loadP2PSendResumeState()).length > 0;
@@ -1479,20 +1595,32 @@ socket.on('room-expired', () => {
 });
 
 socket.on('secret-mismatch', () => {
+    const targetWorkspace = roomId || window._pendingWorkspaceId || (ui.inputs.roomId ? ui.inputs.roomId.value.trim() : '');
+    window._pendingWorkspaceId = targetWorkspace;
+    const wasAlreadyPrompted = window._secretPromptAttempted || false;
+    window._secretPromptAttempted = true;
+    if (targetWorkspace && typeof ActivityTracker !== 'undefined') {
+        ActivityTracker.removeP2PRoom(targetWorkspace);
+    }
+    pendingJoinState = null;
+    roomId = null;
+    signalingId = null;
+    syncDebugState();
+    if (typeof showScreen === 'function') showScreen('room');
+    updateConnectionStatus('disconnected');
+    
+    if (wasAlreadyPrompted) {
+        showToast('Incorrect Passcode', 'The secret word for this workspace is incorrect. Please try again.', 'error');
+    } else {
+        showToast('Passcode Required', 'This workspace is protected by a secret passcode. Please enter it to join.', 'error');
+    }
+    
     if (typeof ui !== 'undefined' && ui.panels.secretPromptModal) {
-        window._pendingWorkspaceId = roomId ? roomId : window._pendingWorkspaceId;
-        roomId = null;
-        updateConnectionStatus('disconnected');
         ui.panels.secretPromptModal.style.display = 'flex';
         if (ui.inputs.promptSecret) {
             ui.inputs.promptSecret.value = '';
             ui.inputs.promptSecret.focus();
         }
-    } else {
-        showToast('Incorrect Secret', 'The secret word for this workspace is incorrect. Please try again.', 'error');
-        roomId = null;
-        showScreen('room');
-        updateConnectionStatus('disconnected');
     }
 });
 
@@ -1503,15 +1631,20 @@ socket.on('chat-history', (history) => {
 });
 
 socket.on('destruction-requested', (requesterName, reqPersistentId) => {
+    const myId = myPersistentId || localStorage.getItem('emit-persistent-id');
+    if ((reqPersistentId && myId && reqPersistentId === myId) || window.isDestructionRequester) {
+        window.isDestructionRequester = true;
+        return; // Don't show the modal to the requester
+    }
     const modal = document.getElementById('destruction-request-modal');
     const nameSpan = document.getElementById('destruction-requester-name');
     const countdownText = document.getElementById('destruction-request-countdown');
     if (!modal) return;
-    
+
     if (nameSpan) nameSpan.textContent = requesterName;
     modal.style.display = 'flex';
     renderDestructionVoteLists([], []);
-    
+
     let timeLeft = 15;
     if (window.destructionRequestInterval) clearInterval(window.destructionRequestInterval);
     window.destructionRequestInterval = setInterval(() => {
@@ -1526,7 +1659,7 @@ socket.on('destruction-requested', (requesterName, reqPersistentId) => {
 
     const rejectBtn = document.getElementById('destruction-reject-btn');
     const acceptBtn = document.getElementById('destruction-accept-btn');
-    
+
     if (rejectBtn) rejectBtn.onclick = () => {
         socket.emit('peer-destroy-reject');
         modal.style.display = 'none';
@@ -1562,6 +1695,9 @@ function renderDestructionVoteLists(acceptedNames = [], pendingNames = []) {
 }
 
 socket.on('destruction-vote-update', ({ accepted = 0, required = 0, requesterName = 'A participant', acceptedNames = [], pendingNames = [] } = {}) => {
+    if (window.isDestructionRequester) {
+        return; // Don't show the modal to the requester
+    }
     const modal = document.getElementById('destruction-request-modal');
     const countdownText = document.getElementById('destruction-request-countdown');
     const nameSpan = document.getElementById('destruction-requester-name');
@@ -1574,6 +1710,7 @@ socket.on('destruction-vote-update', ({ accepted = 0, required = 0, requesterNam
 });
 
 socket.on('peer-destroy-reject', (peerName) => {
+    window.isDestructionRequester = false;
     const modal = document.getElementById('destruction-request-modal');
     if (modal) modal.style.display = 'none';
     const name = peerName || 'A participant';
@@ -1609,7 +1746,7 @@ socket.on('room-metadata', (data) => {
         if (mins > 0) return `${mins}m ${secs.toString().padStart(2, '0')}s`;
         return `${secs}s`;
     };
-    
+
     const updateTimer = () => {
         const metadata = latestRoomMetadata || data;
         const now = Date.now() - serverTimeOffset;
@@ -1663,27 +1800,88 @@ socket.on('room-metadata', (data) => {
 
         textEl.textContent = `${prefix}${formatRemaining(left)}`.trim();
     };
-    
+
     updateTimer();
     window._expiryInterval = setInterval(updateTimer, 1000);
 });
 
-socket.on('peer-destroyed-room', () => {
-    if (typeof playProceduralSound === 'function') playProceduralSound('pop');
-    showToast('Room Destroyed', 'The workspace has been permanently deleted.', 'warning');
-    if (roomId && typeof ActivityTracker !== 'undefined') {
-        ActivityTracker.handleRoomClose(roomId);
-    } else {
-        performWipe(true);
+socket.on('room-settings', ({ forceSpectatorOnly } = {}) => {
+    const ctrl = document.getElementById('owner-force-spectator-control');
+    const chk = document.getElementById('toggle-force-spectator');
+    if (ctrl) ctrl.style.display = 'flex';
+    if (chk) chk.checked = !!forceSpectatorOnly;
+    if (window._pendingForceSpectator && !forceSpectatorOnly) {
+        socket.emit('set-force-spectator', true);
+        if (chk) chk.checked = true;
+        window._pendingForceSpectator = false;
     }
+});
+
+socket.on('room-settings-update', ({ forceSpectatorOnly } = {}) => {
+    const chk = document.getElementById('toggle-force-spectator');
+    if (chk) chk.checked = !!forceSpectatorOnly;
+    if (forceSpectatorOnly && !window._pendingIsCreator && !window.isSpectator) {
+        window.isSpectator = true;
+        const spectatorChk = document.getElementById('spectator-mode-checkbox');
+        if (spectatorChk) spectatorChk.checked = true;
+        const dropZone = document.getElementById('drop-zone');
+        if (dropZone) dropZone.style.display = 'none';
+        showToast('Spectator Mode Enabled', 'The room owner has set all peers to spectator mode.', 'info');
+    }
+});
+
+socket.on('force-spectator-mode', () => {
+    window.isSpectator = true;
+    const spectatorChk = document.getElementById('spectator-mode-checkbox');
+    if (spectatorChk) spectatorChk.checked = true;
+    const dropZone = document.getElementById('drop-zone');
+    if (dropZone) dropZone.style.display = 'none';
+    showToast('Spectator Mode', 'This room requires spectator-only mode. You can receive files but not send.', 'info');
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    const toggleChk = document.getElementById('toggle-force-spectator');
+    if (toggleChk) {
+        toggleChk.addEventListener('change', () => {
+            if (typeof socket !== 'undefined' && socket.emit) {
+                socket.emit('set-force-spectator', toggleChk.checked);
+            }
+        });
+    }
+});
+
+socket.on('peer-destroyed-room', () => {
+    if (isWiping) return;
+    if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+
+    const modal = document.getElementById('destruction-request-modal');
+    if (modal) modal.style.display = 'none';
+    if (window.destructionRequestInterval) {
+        clearInterval(window.destructionRequestInterval);
+        window.destructionRequestInterval = null;
+    }
+
+    showToast('Room Destroyed', 'The workspace has been permanently deleted.', 'warning');
+    animateVanishAndClear(true).then(() => {
+        if (typeof window.closeTab === 'function' && window.activeTabId && window.activeTabId !== 'home') {
+            window.closeTab(window.activeTabId);
+        } else {
+            performWipe(true);
+        }
+    });
 });
 
 socket.on('chat-message', (msg) => {
     if (msg.senderId === socket.id) return;
     const peerName = msg.senderName || 'Peer';
-    if (typeof window.appendToChatLog === 'function') window.appendToChatLog(peerName, msg.text);
+    if (typeof window.appendToChatLog === 'function') window.appendToChatLog(peerName, msg.text, false, !!msg.ephemeral, msg.msgId || null);
     reportUserActivity(true);
     if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+});
+
+socket.on('message-read', (msgId) => {
+    const el = document.getElementById(msgId);
+    if (el) el.remove();
 });
 
 socket.on('ecdh-public-key', async (theirPublicJwk, senderId) => {
@@ -1694,8 +1892,8 @@ socket.on('ecdh-public-key', async (theirPublicJwk, senderId) => {
     const sharedKey = await deriveSharedKey(theirPublicJwk, passphrase);
     peers[senderId].ecdhKey = sharedKey;
 
-    
-    
+
+
     peers[senderId].encryptReady = true;
 
     const statusEl = document.getElementById(`peer-status-${senderId}`);
@@ -1724,7 +1922,33 @@ socket.on('peer-list', async (peerList) => {
         if (typeof ActivityTracker !== 'undefined') {
             ActivityTracker.addP2PRoom(pendingJoinState.roomId, { name: pendingJoinState.roomId });
         }
+        if (window.tabStates) {
+            const tabId = 'room-' + pendingJoinState.roomId;
+            if (!window.tabStates[tabId]) {
+                window.tabStates[tabId] = {
+                    id: tabId, name: pendingJoinState.roomId, roomId: pendingJoinState.roomId,
+                    signalingId: pendingJoinState.signalingId,
+                    peers: {}, activeSends: {}, activeReceives: {}, receiveBuffer: {},
+                    receivedChunks: {}, p2pTransferQueue: [], activeP2PCount: 0,
+                    chatHtml: '', peerListHtml: '', transfersHtml: '', socket: socket
+                };
+            }
+            window.activeTabId = tabId;
+            if (typeof window.renderTabsUI === 'function') window.renderTabsUI();
+        }
         showScreen('transfer');
+        if (window.isSpectator) {
+            const dropZone = document.getElementById('drop-zone');
+            if (dropZone) {
+                dropZone.style.display = 'none';
+            }
+            showToast('Spectator Mode', 'You are in read-only mode. You can receive files but not send.', 'info');
+        } else {
+            const dropZone = document.getElementById('drop-zone');
+            if (dropZone) {
+                dropZone.style.display = '';
+            }
+        }
         pendingJoinState = null;
     }
     if (window.isShadowTab) {
@@ -1734,17 +1958,17 @@ socket.on('peer-list', async (peerList) => {
         return;
     }
     const otherPeers = peerList.filter(p => p.id !== socket.id);
-    
+
     // **SEAMLESS RECONNECT HANDOFF**: Preserve connections during socket ID changes
     const peersToPreserveState = {}; // oldId -> { pc, dc, name, ecdhKey, ... }
-    
+
     otherPeers.forEach(p => {
         if (p.persistentId) {
             // Look for a peer with same persistentId but different socket ID (reconnect case)
-            const oldPeerId = Object.keys(peers).find(id => 
+            const oldPeerId = Object.keys(peers).find(id =>
                 peers[id].persistentId === p.persistentId && id !== p.id
             );
-            
+
             if (oldPeerId && peers[oldPeerId]) {
                 const oldPeer = peers[oldPeerId];
                 const activeChannel = oldPeer.dc || oldPeer.channel;
@@ -1768,24 +1992,24 @@ socket.on('peer-list', async (peerList) => {
                     };
                 } else {
                     if (oldPeer.pc) {
-                        try { oldPeer.pc.close(); } catch (e) {}
+                        try { oldPeer.pc.close(); } catch (e) { }
                     }
                 }
-                
+
                 // Update transfer references to new socket ID
                 for (const [fId, meta] of Object.entries(activeReceives)) {
                     if (meta.senderId === oldPeerId) {
                         meta.senderId = p.id;
-                        auditLog(`Transfer "${meta.name}" mapped from old peer ${oldPeerId.substring(0,6)} → new ${p.id.substring(0,6)}`);
+                        auditLog(`Transfer "${meta.name}" mapped from old peer ${oldPeerId.substring(0, 6)} → new ${p.id.substring(0, 6)}`);
                     }
                 }
                 for (const [fId, sendState] of Object.entries(activeSends)) {
                     if (sendState.targetId === oldPeerId) {
                         sendState.targetId = p.id;
-                        auditLog(`Send transfer "${fId.substring(0,6)}" mapped to new peer ${p.id.substring(0,6)}`);
+                        auditLog(`Send transfer "${fId.substring(0, 6)}" mapped to new peer ${p.id.substring(0, 6)}`);
                     }
                 }
-                
+
                 // Clean up only the old socket ID reference, not the connection itself
                 delete peers[oldPeerId];
             }
@@ -1809,7 +2033,7 @@ socket.on('peer-list', async (peerList) => {
                 isOfferer: shouldBeOfferer(p.id),
                 reconnecting: false  // Mark as fully reconnected
             };
-            auditLog(`Peer ${p.id.substring(0,6)} seamlessly reconnected - connection preserved`);
+            auditLog(`Peer ${p.id.substring(0, 6)} seamlessly reconnected - connection preserved`);
         } else if (peers[p.id]) {
             // Existing peer, keep as-is
             newPeers[p.id] = peers[p.id];
@@ -1819,43 +2043,35 @@ socket.on('peer-list', async (peerList) => {
             newPeers[p.id].reconnecting = p.reconnecting || false;
         } else {
             // New peer, create fresh
-            newPeers[p.id] = { 
-                id: p.id, 
-                name: p.name, 
-                persistentId: p.persistentId, 
-                pc: null, 
-                dc: null, 
+            newPeers[p.id] = {
+                id: p.id,
+                name: p.name,
+                persistentId: p.persistentId,
+                pc: null,
+                dc: null,
                 channel: null,
                 isOfferer: shouldBeOfferer(p.id),
-                reconnecting: p.reconnecting || false 
+                reconnecting: p.reconnecting || false,
+                isSpectator: p.isSpectator || false
             };
         }
     });
 
-    Object.keys(newPeers).forEach(id => {
-        const peer = newPeers[id];
-        if (peer?.reconnecting && !hasUsablePeerConnection(peer)) {
-            if (peer.pc) {
-                try { peer.pc.close(); } catch (e) {}
-            }
-            delete newPeers[id];
-        }
-    });
-    
+
     // Close only peers that are truly leaving (not in new list)
     Object.keys(peers).forEach(id => {
         if (!newPeers[id]) {
             if (peers[id].pc) {
-                try { peers[id].pc.close(); } catch(e){}
+                try { peers[id].pc.close(); } catch (e) { }
             }
         }
     });
-    
+
     peers = newPeers;
     window.peers = peers;
     syncDebugState();
     updatePeerListUI();
-    
+
     if (typeof ActivityTracker !== 'undefined') {
         const curId = (typeof roomId !== 'undefined' && roomId) ? roomId : (signalingId || 'current-room');
         const peerNames = Object.values(peers).filter(p => !p.reconnecting).map(p => p.name);
@@ -1870,43 +2086,45 @@ socket.on('peer-list', async (peerList) => {
             if (myECDHKeyPair) {
                 crypto.subtle.exportKey('jwk', myECDHKeyPair.publicKey).then(jwk => {
                     socket.emit('ecdh-public-key', jwk, signalingId, newPeerId);
-                }).catch(() => {});
+                }).catch(() => { });
             }
             // DC is open after reconnect - manually resume transfers targeting new peer
             for (const [fId, sendState] of Object.entries(activeSends)) {
                 if (sendState.targetId === newPeerId && sendState.paused && !sendState.aborted) {
                     resumeSendFile(fId, newPeerId);
-                    auditLog(`Resumed paused send "${fId.substring(0,6)}" to peer ${newPeerId.substring(0,6)} after reconnect`);
+                    auditLog(`Resumed paused send "${fId.substring(0, 6)}" to peer ${newPeerId.substring(0, 6)} after reconnect`);
                 }
             }
         }
     }
 
-    for (const p of otherPeers) {
-        const peer = peers[p.id];
-        if (!peer) continue;
-        const activeChannel = peer.dc || peer.channel;
-        const connectionState = peer.pc ? peer.pc.connectionState : null;
-        const signalingState = peer.pc ? peer.pc.signalingState : null;
-        const hasWorkingConnection = !!(
-            peer.pc && (
-                (activeChannel && activeChannel.readyState === 'open') ||
-                connectionState === 'connected' ||
-                connectionState === 'connecting' ||
-                signalingState === 'have-remote-offer' ||
-                signalingState === 'have-local-offer'
-            )
-        );
-        if (!p.reconnecting && !hasWorkingConnection) {
-            if (peer.pc) {
-                try { peer.pc.close(); } catch (e) {}
-                peer.pc = null;
-                peer.dc = null;
-                peer.channel = null;
-            }
-            peer.isOfferer = shouldBeOfferer(p.id);
-            if (peer.isOfferer) {
-                await initiateMeshOffer(p.id);
+    if (!window.isSpectator) {
+        for (const p of otherPeers) {
+            const peer = peers[p.id];
+            if (!peer || peer.isSpectator) continue;
+            const activeChannel = peer.dc || peer.channel;
+            const connectionState = peer.pc ? peer.pc.connectionState : null;
+            const signalingState = peer.pc ? peer.pc.signalingState : null;
+            const hasWorkingConnection = !!(
+                peer.pc && (
+                    (activeChannel && activeChannel.readyState === 'open') ||
+                    connectionState === 'connected' ||
+                    connectionState === 'connecting' ||
+                    signalingState === 'have-remote-offer' ||
+                    signalingState === 'have-local-offer'
+                )
+            );
+            if (!p.reconnecting && !hasWorkingConnection) {
+                if (peer.pc) {
+                    try { peer.pc.close(); } catch (e) { }
+                    peer.pc = null;
+                    peer.dc = null;
+                    peer.channel = null;
+                }
+                peer.isOfferer = shouldBeOfferer(p.id);
+                if (peer.isOfferer) {
+                    await initiateMeshOffer(p.id);
+                }
             }
         }
     }
@@ -1926,7 +2144,7 @@ socket.on('user-left', (leftPeerId, reason) => {
 
     const isKnown = !!peers[leftPeerId];
     let peerName = 'A participant';
-    
+
     if (peers[leftPeerId]) {
         peerName = peers[leftPeerId].name;
         if (reason === 'reconnect') {
@@ -1937,34 +2155,34 @@ socket.on('user-left', (leftPeerId, reason) => {
                 statusEl.textContent = 'Reconnecting...';
                 statusEl.style.color = 'var(--text-warning)';
             }
-            auditLog(`Peer ${peerName} (${leftPeerId.substring(0,6)}) disconnected - awaiting reconnect...`);
+            auditLog(`Peer ${peerName} (${leftPeerId.substring(0, 6)}) disconnected - awaiting reconnect...`);
             // DON'T delete the peer or clean up transfers - they will resume when reconnect completes
             return;
         } else {
             // Actual disconnect: delete peer completely
             if (peers[leftPeerId].pc) {
-                try { peers[leftPeerId].pc.close(); } catch(e){}
+                try { peers[leftPeerId].pc.close(); } catch (e) { }
             }
             delete peers[leftPeerId];
             window.peers = peers;
         }
     }
-    
+
     const statusMsg = reason === 'kicked' ? 'got kicked for cursing.' : 'left the workspace.';
-    
+
     if (isKnown && reason !== 'reconnect') {
         showToast('Participant Left', `${peerName} ${statusMsg}`, 'info');
         appendToChatLog('System', `${peerName} ${statusMsg}`, false);
     }
 
     updatePeerListUI();
-    
+
     // Only clean up transfers for actual disconnects, not reconnects
     const shouldPreserveTransferRows = reason === 'reconnect' || Object.keys(loadP2PResumeState()).length > 0 || Object.keys(loadP2PSendResumeState()).length > 0;
     if (!shouldPreserveTransferRows) {
         const item = document.getElementById(`peer-item-${leftPeerId}`);
         if (item) item.remove();
-        
+
         for (const [fId, meta] of Object.entries(activeReceives)) {
             if (meta.senderId === leftPeerId) {
                 delete activeReceives[fId];
@@ -2002,7 +2220,7 @@ async function initiateMeshOffer(targetId) {
         if (state === 'have-local-offer' || state === 'have-remote-offer') {
             return;
         }
-        try { existingPeer.pc.close(); } catch (e) {}
+        try { existingPeer.pc.close(); } catch (e) { }
         existingPeer.pc = null;
         existingPeer.dc = null;
         existingPeer.channel = null;
@@ -2025,6 +2243,7 @@ async function initiateMeshOffer(targetId) {
 }
 
 socket.on('offer', async (offer, senderId, senderName) => {
+    if (window.isSpectator) return;
     if (!peers[senderId]) {
         peers[senderId] = { id: senderId, name: senderName, pc: null, dc: null, channel: null, isOfferer: shouldBeOfferer(senderId) };
         updatePeerListUI();
@@ -2042,7 +2261,7 @@ socket.on('offer', async (offer, senderId, senderName) => {
             return;
         }
         if (existingState !== 'stable') {
-            try { existingPeer.pc.close(); } catch (e) {}
+            try { existingPeer.pc.close(); } catch (e) { }
             existingPeer.pc = null;
             existingPeer.dc = null;
             existingPeer.channel = null;
@@ -2113,7 +2332,7 @@ async function updatePeerListUI() {
     const peerArray = Object.values(peers);
     const myName = localStorage.getItem('ys_persistent_name') || sessionStorage.getItem('ys_user_name') || 'Me';
     const isGeneric = myName.startsWith('User-');
-    
+
     let html = `
         <div class="peer-item local-user ${isGeneric ? 'identity-nudge' : ''}">
             <div class="peer-avatar" style="background: var(--accent-emerald); color: #fff;">${myName.charAt(0).toUpperCase()}</div>
@@ -2130,21 +2349,36 @@ async function updatePeerListUI() {
     if (peerArray.length === 0) {
     }
 
-    html += peerArray.map(p => `
-        <div class="peer-item" id="peer-item-${p.id}">
-            <div class="peer-avatar">${p.name.charAt(0).toUpperCase()}</div>
-            <div class="peer-info">
-                <div class="peer-name">${p.name}</div>
-                <div class="peer-status" id="peer-status-${p.id}">${p.reconnecting ? 'Reconnecting...' : (p.dc && p.dc.readyState === 'open' ? 'Connected' : 'Connecting...')}</div>
+    html += peerArray.map(p => {
+        const isSpec = p.isSpectator || false;
+        let status = 'Connecting...';
+        if (isSpec) status = 'Spectating';
+        else if (p.reconnecting) status = 'Reconnecting...';
+        else if ((p.dc && p.dc.readyState === 'open') || (p.pc && p.pc.connectionState === 'connected')) status = 'Connected';
+        return `
+            <div class="peer-item ${isSpec ? 'spectator-user' : ''}" id="peer-item-${p.id}">
+                <div class="peer-avatar" style="${isSpec ? 'background: rgba(255,255,255,0.06); color: var(--text-muted);' : ''}">${p.name.charAt(0).toUpperCase()}</div>
+                <div class="peer-info">
+                    <div class="peer-name" style="display:flex; align-items:center; gap:6px;">
+                        ${p.name}
+                        ${isSpec ? `<span style="font-size:0.65rem; padding: 1px 4px; border-radius:3px; background: rgba(255,255,255,0.08); color: var(--text-muted);">Spectator</span>` : ''}
+                    </div>
+                    <div class="peer-status" id="peer-status-${p.id}">${status}</div>
+                </div>
+                <div class="peer-checkbox-wrapper">
+                    ${isSpec ? '' : `<input type="checkbox" class="peer-checkbox" data-peer-id="${p.id}" checked>`}
+                </div>
             </div>
-            <div class="peer-checkbox-wrapper">
-                <input type="checkbox" class="peer-checkbox" data-peer-id="${p.id}" checked>
-            </div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 
     container.innerHTML = html;
-    
+
+    if (roomId && typeof ActivityTracker !== 'undefined') {
+        const fullParticipants = [myName, ...peerArray.map(p => p.name || 'Peer')];
+        ActivityTracker.updateP2PRoom(roomId, fullParticipants);
+    }
+
     if (peerArray.length > 0) {
         updateConnectionStatus('connected');
     } else {
@@ -2223,6 +2457,241 @@ function mangleSDP(sdp) {
     return sdp.replace(/b=AS:.*\r\n/g, "").replace(/a=mid:.*\r\n/g, (match) => match + "b=AS:1048576\r\n");
 }
 
+function setupP2PSendLoop(fileId, targetId, activePeer) {
+    const getPeer = () => {
+        const s = activeSends[fileId];
+        return (s && peers[s.targetId]) ? peers[s.targetId] : activePeer;
+    };
+
+    const state = activeSends[fileId];
+    if (!state) return;
+
+    const cancelBtn = document.getElementById(`cancel-transfer-${fileId}`);
+    if (cancelBtn) {
+        cancelBtn.onclick = () => {
+            state.aborted = true;
+            delete activeSends[fileId];
+            clearPersistedTransferArtifacts(fileId);
+            const item = document.getElementById(`item-${fileId}`);
+            if (item) item.remove();
+            auditLog(`Outgoing transfer to ${getPeer().name} cancelled.`);
+            if (getPeer().dc && getPeer().dc.readyState === 'open') {
+                getPeer().dc.send(JSON.stringify({ type: 'cancel-transfer', fileId }));
+            }
+        };
+    }
+
+    let sendStats = { lastTime: Date.now(), lastBytes: (state.chunkIndex || 0) * CHUNK_SIZE };
+    let pipeline = [];
+    const MAX_PIPELINE = 16;
+
+    if (activePeer.dc) {
+        activePeer.dc.bufferedAmountLowThreshold = 256 * 1024;
+    }
+
+    const pumpPipeline = async () => {
+        const s = activeSends[fileId];
+        if (!s || s.paused || s.aborted) return;
+        const totalChunks = Math.ceil(s.file.size / CHUNK_SIZE);
+
+        while (pipeline.length < MAX_PIPELINE && s.chunkIndex < totalChunks) {
+            const idx = s.chunkIndex++;
+            const start = idx * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, s.file.size);
+            const blobChunk = s.file.slice(start, end);
+            const rawChunk = await blobChunk.arrayBuffer();
+            pipeline.push(Promise.resolve({ idx, p: rawChunk }));
+        }
+    };
+
+    const sendNextChunk = async () => {
+        try {
+            const s = activeSends[fileId];
+            if (!s || s.paused || s.aborted) return;
+            const totalChunks = Math.ceil(s.file.size / CHUNK_SIZE);
+
+            await pumpPipeline();
+
+            while (pipeline.length > 0) {
+                const currentState = activeSends[fileId];
+                if (!currentState || currentState.aborted || currentState.paused) {
+                    return;
+                }
+                const currentPeer = getPeer();
+                if (!currentPeer || !currentPeer.dc || currentPeer.dc.readyState !== 'open') {
+                    currentState.paused = true;
+                    if (currentPeer && currentPeer.dc && currentPeer.dc.readyState === 'open') {
+                        currentPeer.dc.send(JSON.stringify({ type: 'transfer-disturbed', fileId, message: 'Sender connection got interrupted. Waiting for resume.' }));
+                    }
+                    markSendPaused(fileId, currentPeer?.name || activePeer.name);
+                    return;
+                }
+                if (currentPeer.dc.bufferedAmount > 1024 * 1024) {
+                    await new Promise((res) => {
+                        let isResolved = false;
+                        const handleLow = () => {
+                            if (isResolved) return;
+                            const activePeer = getPeer();
+                            if (!activePeer || !activePeer.dc || activePeer.dc.readyState !== 'open') {
+                                isResolved = true;
+                                res();
+                                return;
+                            }
+                            const threshold = activePeer.dc.bufferedAmountLowThreshold || (256 * 1024);
+                            if (activePeer.dc.bufferedAmount <= threshold) {
+                                isResolved = true;
+                                activePeer.dc.onbufferedamountlow = null;
+                                res();
+                            }
+                        };
+                        currentPeer.dc.onbufferedamountlow = handleLow;
+                        const check = () => {
+                            if (isResolved) return;
+                            const activePeer = getPeer();
+                            if (!activePeer || !activePeer.dc || activePeer.dc.readyState !== 'open') {
+                                isResolved = true;
+                                res();
+                                return;
+                            }
+                            const threshold = activePeer.dc.bufferedAmountLowThreshold || (256 * 1024);
+                            if (activePeer.dc.bufferedAmount <= threshold) {
+                                isResolved = true;
+                                activePeer.dc.onbufferedamountlow = null;
+                                res();
+                            } else {
+                                setTimeout(check, 4);
+                            }
+                        };
+                        setTimeout(check, 4);
+                    });
+                }
+
+                const nextChunk = await pipeline.shift();
+                if (!nextChunk) {
+                    await pumpPipeline();
+                    if (!pipeline.length) {
+                        break;
+                    }
+                    continue;
+                }
+                const { idx, p } = nextChunk;
+                const activePeer = getPeer();
+                if (!activePeer || !activePeer.dc || activePeer.dc.readyState !== 'open') {
+                    currentState.paused = true;
+                    if (activePeer && activePeer.dc && activePeer.dc.readyState === 'open') {
+                        activePeer.dc.send(JSON.stringify({ type: 'transfer-disturbed', fileId, message: 'Sender connection got interrupted. Waiting for resume.' }));
+                    }
+                    markSendPaused(fileId, activePeer?.name || 'peer');
+                    return;
+                }
+
+                let dataToSend = p;
+                if (activePeer.ecdhKey) {
+                    const iv = crypto.getRandomValues(new Uint8Array(12));
+                    const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, activePeer.ecdhKey, p);
+                    const combined = new Uint8Array(iv.length + cipher.byteLength);
+                    combined.set(iv);
+                    combined.set(new Uint8Array(cipher), iv.length);
+                    dataToSend = combined;
+                }
+
+                activePeer.dc.send(JSON.stringify({ type: 'chunk-header', fileId, chunkIndex: idx }));
+                activePeer.dc.send(dataToSend);
+                await pumpPipeline();
+
+                if (idx % 64 === 0) {
+                    await new Promise(r => setTimeout(r, 4));
+                }
+
+                const now = Date.now();
+                const elapsed = (now - sendStats.lastTime) / 1000;
+                if (elapsed >= 0.5 || idx + 1 === totalChunks) {
+                    const bytesDone = (idx + 1) * CHUNK_SIZE;
+                    const progressPct = Math.min((bytesDone / state.file.size) * 100, 100);
+                    const speed = (bytesDone - sendStats.lastBytes) / elapsed;
+                    const remaining = state.file.size - bytesDone;
+                    updateTransferProgress(fileId, progressPct, `Sending to ${activePeer.name}`, formatSpeed(speed), formatETA(remaining / speed), speed);
+                    setResumeButtonState(fileId, false, null);
+                    persistPausedSend(fileId, activePeer.name, progressPct);
+                    if (typeof ActivityTracker !== 'undefined') {
+                        ActivityTracker.updateTransfer(fileId, {
+                            progress: progressPct,
+                            speed: formatSpeed(speed),
+                            rawSpeed: speed,
+                            eta: formatETA(remaining / speed)
+                        });
+                    }
+                    sendStats.lastTime = now;
+                    sendStats.lastBytes = bytesDone;
+                }
+
+                if (idx + 1 === totalChunks) {
+                    const finalPeer = getPeer();
+                    if (finalPeer && finalPeer.dc && finalPeer.dc.readyState === 'open') {
+                        finalPeer.dc.send(JSON.stringify({ type: 'file-done', id: fileId }));
+                    }
+                    setResumeButtonState(fileId, false, null);
+                    clearPersistedPausedSend(fileId);
+                    clearCachedP2PSendFile(fileId).catch(() => { });
+                    updateTransferProgress(fileId, 100, `Sent to ${activePeer.name}`, '', '');
+                    const downloadBtn = document.getElementById(`download-btn-${fileId}`);
+                    if (downloadBtn && state.file) {
+                        const url = URL.createObjectURL(state.file);
+                        downloadBtn.href = url;
+                        downloadBtn.download = state.file.name;
+                        downloadBtn.style.pointerEvents = 'auto';
+                        downloadBtn.style.opacity = '1';
+                        downloadBtn.onclick = (e) => {
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = state.file.name;
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                            e.preventDefault();
+                        };
+                    }
+                    if (typeof ActivityTracker !== 'undefined') {
+                        ActivityTracker.updateTransfer(fileId, {
+                            progress: 100,
+                            speed: '',
+                            eta: '',
+                            paused: false,
+                            pausedLabel: '',
+                            direction: 'upload',
+                            roomId: roomId || null,
+                            name: state.file.name,
+                            nickname: state.file.nickname || '',
+                            size: state.file.size
+                        });
+                    }
+                    delete activeSends[fileId];
+                    return;
+                }
+            }
+        } catch (err) {
+            console.error('Send Error:', err);
+            updateTransferProgress(fileId, 0, `FAILED: ${err.message}`, '', '');
+            persistPausedSend(fileId, getPeer()?.name || activePeer.name, Math.min((((activeSends[fileId]?.chunkIndex || 0) * CHUNK_SIZE) / state.file.size) * 100, 100));
+        }
+    };
+
+    state.resumeLoop = sendNextChunk;
+
+    const heartbeatInterval = setInterval(() => {
+        const s = activeSends[fileId];
+        if (!s || s.aborted || s.paused) {
+            clearInterval(heartbeatInterval);
+            return;
+        }
+        const activePeer = getPeer();
+        if (activePeer && activePeer.dc && activePeer.dc.readyState === 'open') {
+            activePeer.dc.send(JSON.stringify({ type: 'p2p-heartbeat', fileId }));
+            socket.emit('room-heartbeat', signalingId);
+        }
+    }, 10000);
+}
+
 async function resumeSendFile(fileId, targetId) {
     let state = activeSends[fileId];
     if (!state) {
@@ -2276,6 +2745,9 @@ async function resumeSendFile(fileId, targetId) {
         state.waitingForOpen = false;
         state.paused = false;
         persistPausedSend(fileId, state.peerName || peer.name || 'peer');
+        if (typeof state.resumeLoop !== 'function') {
+            setupP2PSendLoop(fileId, targetId, peer);
+        }
         if (typeof state.resumeLoop === 'function') {
             state.resumeLoop();
         }
@@ -2465,7 +2937,7 @@ function setupDataChannel(channel, targetId) {
                             if (plain.type === 'reaction') {
                                 appendToChatLog(peerName, plain.emoji, true);
                             } else {
-                                appendToChatLog(peerName, plain.text);
+                                appendToChatLog(peerName, plain.text, false, !!plain.ephemeral, plain.msgId || null);
                             }
                             reportUserActivity(true);
                             if (typeof playProceduralSound === 'function') playProceduralSound('pop');
@@ -2583,6 +3055,7 @@ async function encryptMeta(metaObj, key) {
     );
     return { encrypted: true, iv: Array.from(iv), data: Array.from(new Uint8Array(cipher)) };
 }
+window.encryptMeta = encryptMeta;
 
 let p2pTransferQueue = [];
 let activeP2PCount = 0;
@@ -2592,7 +3065,7 @@ function processP2PQueue() {
     while (activeP2PCount < MAX_CONCURRENT_P2P && p2pTransferQueue.length > 0) {
         const item = p2pTransferQueue.shift();
         activeP2PCount++;
-        sendFile(item.file, item.targetId, item.nickname).finally(() => {
+        sendFile(item.file, item.targetId, item.nickname, item.note || '').finally(() => {
             activeP2PCount--;
             processP2PQueue();
         });
@@ -2619,6 +3092,10 @@ async function handleFiles(files) {
         showToast('No Peer', 'No direct peer is ready right now.', 'warning');
         return;
     }
+    if (window.isSpectator) {
+        showToast('Spectator Mode', 'You joined as spectator and cannot send files.', 'warning');
+        return;
+    }
     const targetId = peerArray[0].id;
     const stealthMode = document.getElementById('stealth-mode-checkbox') && document.getElementById('stealth-mode-checkbox').checked;
     if (stealthMode) {
@@ -2627,19 +3104,102 @@ async function handleFiles(files) {
         showToast('Stealth Mode', 'Cleaning files of hidden metadata...', 'info');
     }
 
-    for (let f of files) {
-        const processedFile = stealthMode ? await stripMetadata(f) : f;
-        const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        createTransferElement(pendingId, processedFile.name, processedFile.size, false, processedFile, '');
-        updateTransferProgress(pendingId, 0, `Preparing to send to ${peerArray[0].name}`, '', '');
-        const pendingItem = document.getElementById(`item-${pendingId}`);
-        if (pendingItem) pendingItem.dataset.pendingTransfer = 'true';
-        p2pTransferQueue.push({ file: processedFile, targetId, nickname: '' });
+    const scheduledCheckbox = document.getElementById('schedule-checkbox');
+    const scheduleTimeSelect = document.getElementById('schedule-time-select');
+    const noteInput = document.getElementById('file-note-input');
+    const note = noteInput ? noteInput.value.trim() : '';
+    if (note) {
+        const lowerNote = note.toLowerCase();
+        const hasBannedEmoji = ['🖕', '🍑', '🍌', '🍆', '💦', '🔞'].some(emoji => note.includes(emoji));
+        const hasBannedWord = ['fuck', 'shit', 'bitch', 'asshole', 'pussy', 'dick', 'nigger', 'nigga', 'sex', 'sexual', 'nude', 'nudes', 'adult', 'xxx', 'porn', 'pornography', 'nsfw', 'girl', 'girls', 'boy', 'boys', 'guy', 'guys', 'lgbt', 'gay', 'lesbian', 'trans', 'dating', 'meetup', 'hookup', 'horny', 'date', 'creeps', 'cunt', 'cock'].some(word => lowerNote.includes(word));
+        if (hasBannedEmoji || hasBannedWord) {
+            showToast('Note Blocked', 'Sticky note contains restricted content.', 'error');
+            return;
+        }
     }
-    processP2PQueue();
+    const isScheduled = scheduledCheckbox && scheduledCheckbox.checked && scheduleTimeSelect;
+
+    const doSend = async () => {
+        for (let f of files) {
+            const processedFile = (stealthMode && window.uiShared?.stripMetadata) ? await window.uiShared.stripMetadata(f) : f;
+            const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            createTransferElement(pendingId, processedFile.name, processedFile.size, false, processedFile, '');
+            updateTransferProgress(pendingId, 0, `Preparing to send to ${peerArray[0].name}`, '', '');
+            const pendingItem = document.getElementById(`item-${pendingId}`);
+            if (pendingItem) pendingItem.dataset.pendingTransfer = 'true';
+            p2pTransferQueue.push({ file: processedFile, targetId, nickname: '', note });
+        }
+        processP2PQueue();
+        if (noteInput) noteInput.value = '';
+    };
+
+    if (isScheduled) {
+        const minutes = parseInt(scheduleTimeSelect.value, 10) || 1;
+        let delayMs = minutes * 60 * 1000;
+        const startTime = Date.now();
+        const targetTime = startTime + delayMs;
+
+        const scheduledFiles = [];
+        for (let f of files) {
+            const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            createTransferElement(pendingId, f.name, f.size, false, null, '');
+            updateTransferProgress(pendingId, 0, `Scheduled (in ${minutes}m)`, '', '');
+
+            if (typeof ActivityTracker !== 'undefined') {
+                ActivityTracker.addTransfer(pendingId, {
+                    name: f.name,
+                    size: f.size,
+                    direction: 'upload',
+                    progress: 0,
+                    speed: 'Scheduled',
+                    eta: `${minutes}m`
+                });
+            }
+            scheduledFiles.push({ pendingId, file: f });
+        }
+
+        const interval = setInterval(() => {
+            const remainingSec = Math.round((targetTime - Date.now()) / 1000);
+            if (remainingSec <= 0) {
+                clearInterval(interval);
+                for (const sf of scheduledFiles) {
+                    const pendingItem = document.getElementById(`item-${sf.pendingId}`);
+                    if (!pendingItem) continue;
+                    (async () => {
+                        const processedFile = (stealthMode && window.uiShared?.stripMetadata) ? await window.uiShared.stripMetadata(sf.file) : sf.file;
+                        updateTransferProgress(sf.pendingId, 0, `Preparing to send to ${peerArray[0].name}`, '', '');
+                        if (pendingItem) pendingItem.dataset.pendingTransfer = 'true';
+                        p2pTransferQueue.push({ file: processedFile, targetId, nickname: '', note });
+                        processP2PQueue();
+                    })();
+                }
+                if (noteInput) noteInput.value = '';
+            } else {
+                const minsLeft = Math.floor(remainingSec / 60);
+                const secsLeft = remainingSec % 60;
+                const timeStr = minsLeft > 0 ? `${minsLeft}m ${secsLeft}s` : `${secsLeft}s`;
+                for (const sf of scheduledFiles) {
+                    const pendingItem = document.getElementById(`item-${sf.pendingId}`);
+                    if (!pendingItem) continue;
+                    updateTransferProgress(sf.pendingId, 0, `Scheduled (in ${timeStr})`, '', '');
+                    if (typeof ActivityTracker !== 'undefined') {
+                        ActivityTracker.updateTransfer(sf.pendingId, {
+                            progress: 0,
+                            speed: 'Scheduled',
+                            eta: timeStr
+                        });
+                    }
+                }
+            }
+        }, 1000);
+
+        showToast('Transfer Scheduled', `Will send in ${minutes} minute(s).`, 'info');
+    } else {
+        doSend();
+    }
 }
 
-window.resumeHostedDrop = async function(files, token) {
+window.resumeHostedDrop = async function (files, token) {
     const modal = document.getElementById('drop-modal');
     const dropForm = document.getElementById('drop-modal-form');
     const progressSection = document.getElementById('drop-modal-progress');
@@ -2654,38 +3214,68 @@ window.resumeHostedDrop = async function(files, token) {
 
     if (dropForm) dropForm.style.display = 'none';
     if (progressSection) progressSection.style.display = 'block';
-    
-    try {
-        if (files && files.length > 0) {
-            window.cacheHostedFile(token, files[0]).catch(e => console.warn('Cache failed', e));
+
+    const resumeToken = token || (Array.isArray(files) ? files.token : null);
+    let resumeFiles = Array.isArray(files) ? files : [];
+    if (!resumeFiles || !resumeFiles.length) {
+        if (resumeToken) {
+            const cachedBlob = await window.getCachedHostedFile(resumeToken).catch(() => null);
+            if (cachedBlob) resumeFiles = [cachedBlob];
         }
-        progressLabel.textContent = 'Verifying and Resuming...';
-        
-        // Use the first file for single-file drops, or the whole list for potential bundling
-        // Note: The original hostedDrop expects a single file or a collection flag
+    }
+
+    if (!resumeFiles || resumeFiles.length === 0) {
+        if (progressLabel) progressLabel.textContent = 'Resume failed: cached upload file not found.';
+        if (waitBtn) {
+            waitBtn.disabled = false;
+            waitBtn.textContent = 'Close';
+            waitBtn.onclick = () => {
+                if (modal) modal.style.display = 'none';
+                localStorage.removeItem('emit-active-hosted-token');
+                localStorage.removeItem('emit-active-hosted-state');
+            };
+        }
+        return;
+    }
+
+    try {
+        window.cacheHostedFile(resumeToken, resumeFiles[0]).catch(e => console.warn('Cache failed', e));
+
+        progressSection.innerHTML = `
+            <div class="hosted-progress-card">
+                <div class="hosted-modal-eyebrow"><i class="fa-solid fa-lock"></i> Resuming Upload</div>
+                <div class="hosted-progress-ring-wrap">
+                    <svg viewBox="0 0 36 36" class="hosted-progress-ring-svg" aria-hidden="true">
+                        <path class="ring-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke-width="2"></path>
+                        <path id="portal-progress-ring" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--accent-emerald)" stroke-width="2" stroke-dasharray="0, 100"></path>
+                    </svg>
+                    <div id="drop-progress-pct-display" class="hosted-progress-pct">0%</div>
+                </div>
+                <div id="drop-progress-filename-display" class="drop-modal-file hosted-progress-file" style="margin-bottom:0;">Verifying and Resuming...</div>
+            </div>
+        `;
+
+        const freshPctDisplay = document.getElementById('drop-progress-pct-display');
+        const freshRing = document.getElementById('portal-progress-ring');
+        const freshFileDisplay = document.getElementById('drop-progress-filename-display');
+
         const isCollection = JSON.parse(localStorage.getItem('emit-active-hosted-filenames') || '[]').length > 1;
-        
-        let fileToUpload = files[0];
+
+        let fileToUpload = resumeFiles[0];
         if (isCollection) {
-            // Re-bundle if it was a collection (simplification: assume ZIP bundle if multi-file)
-            progressLabel.textContent = 'Re-bundling for Resume...';
+            if (freshFileDisplay) freshFileDisplay.textContent = 'Re-bundling for Resume...';
             const zip = new JSZip();
-            for (const f of Array.from(files)) zip.file(f.name, f);
+            for (const f of Array.from(resumeFiles)) zip.file(f.name, f);
             fileToUpload = await zip.generateAsync({ type: 'blob' });
         }
 
         const result = await window.hostedDrop(fileToUpload, (phase, pct) => {
-            if (phase === 'resuming') {
-                progressLabel.textContent = 'Catching up with server...';
-            } else {
-                progressLabel.textContent = `Resuming... ${Math.round(pct)}%`;
-            }
             const roundedPct = Math.round(pct);
-            if (pctDisplay) pctDisplay.textContent = roundedPct + '%';
-            if (ring) ring.setAttribute('stroke-dasharray', `${roundedPct}, 100`);
+            if (freshPctDisplay) freshPctDisplay.textContent = roundedPct + '%';
+            if (freshRing) freshRing.setAttribute('stroke-dasharray', `${roundedPct}, 100`);
+            if (freshFileDisplay) freshFileDisplay.textContent = phase === 'resuming' ? 'Catching up with server...' : (fileToUpload.name || 'Bundle');
             const barFill = document.getElementById('portal-progress-bar-fill');
             if (barFill) barFill.style.width = roundedPct + '%';
-            if (fileDisplay) fileDisplay.textContent = fileToUpload.name || 'Bundle';
             if (typeof ActivityTracker !== 'undefined') ActivityTracker.updateHostedLinkProgress(token, pct);
         }, (60 * 60 * 1000), '', { skipActivity: true, token: token });
 
@@ -2710,7 +3300,8 @@ window.resumeHostedDrop = async function(files, token) {
             };
         }
     } catch (e) {
-        progressLabel.textContent = 'Resume Failed: ' + e.message;
+        const errDisplay = document.getElementById('drop-progress-filename-display');
+        if (errDisplay) errDisplay.textContent = 'Resume Failed: ' + e.message;
         if (waitBtn) waitBtn.disabled = false;
     }
 };
@@ -2723,7 +3314,7 @@ if (dropModalClose) {
     });
 }
 
-function sendFile(file, targetId, nickname = '') {
+function sendFile(file, targetId, nickname = '', note = '') {
     return new Promise(async (resolve) => {
         const executeSend = async (activePeer) => {
             const processedFile = file;
@@ -2738,7 +3329,8 @@ function sendFile(file, targetId, nickname = '') {
                 size: processedFile.size,
                 mime: processedFile.type,
                 totalChunks: Math.ceil(processedFile.size / CHUNK_SIZE),
-                nickname: nickname
+                nickname: nickname,
+                note: note || ''
             };
 
             saveP2PSendResumeState({
@@ -2752,6 +3344,7 @@ function sendFile(file, targetId, nickname = '') {
                     targetId,
                     peerName: activePeer.name || 'peer',
                     progress: 0,
+                    chunkIndex: 0,
                     fileMeta: {
                         name: processedFile.name,
                         size: processedFile.size,
@@ -2812,226 +3405,14 @@ function sendFile(file, targetId, nickname = '') {
                 return resolve();
             }
 
-            const getPeer = () => {
-                const s = activeSends[fileId];
-                return (s && peers[s.targetId]) ? peers[s.targetId] : activePeer;
-            };
-
             processedFile.nickname = nickname;
             const sendState = { file: processedFile, chunkIndex: 0, paused: false, aborted: false, fileId, targetId, resumeLoop: null, waitingForOpen: false };
             activeSends[fileId] = sendState;
 
-            const cancelBtn = document.getElementById(`cancel-transfer-${fileId}`);
-            if (cancelBtn) {
-                cancelBtn.onclick = () => {
-                    sendState.aborted = true;
-                    delete activeSends[fileId];
-                    clearPersistedTransferArtifacts(fileId);
-                    const item = document.getElementById(`item-${fileId}`);
-                    if (item) item.remove();
-                    auditLog(`Outgoing transfer to ${getPeer().name} cancelled.`);
-                    if (getPeer().dc && getPeer().dc.readyState === 'open') {
-                        getPeer().dc.send(JSON.stringify({ type: 'cancel-transfer', fileId }));
-                    }
-                    resolve();
-                };
+            setupP2PSendLoop(fileId, targetId, activePeer);
+            if (activeSends[fileId] && typeof activeSends[fileId].resumeLoop === 'function') {
+                activeSends[fileId].resumeLoop();
             }
-
-            let sendStats = { lastTime: Date.now(), lastBytes: 0 };
-            let pipeline = [];
-            const MAX_PIPELINE = 16;
-
-            if (activePeer.dc) {
-                activePeer.dc.bufferedAmountLowThreshold = 256 * 1024;
-            }
-
-            const pumpPipeline = async () => {
-                const state = activeSends[fileId];
-                if (!state || state.paused || state.aborted) return;
-                const totalChunks = Math.ceil(state.file.size / CHUNK_SIZE);
-
-                while (pipeline.length < MAX_PIPELINE && state.chunkIndex < totalChunks) {
-                    const idx = state.chunkIndex++;
-                    const start = idx * CHUNK_SIZE;
-                    const end = Math.min(start + CHUNK_SIZE, state.file.size);
-                    const blobChunk = state.file.slice(start, end);
-                    const rawChunk = await blobChunk.arrayBuffer();
-                    pipeline.push(Promise.resolve({ idx, p: rawChunk }));
-                }
-            };
-
-            const sendNextChunk = async () => {
-                try {
-                    const state = activeSends[fileId];
-                    if (!state || state.paused || state.aborted) return resolve();
-                    const totalChunks = Math.ceil(state.file.size / CHUNK_SIZE);
-
-                    await pumpPipeline();
-
-                    while (pipeline.length > 0) {
-                        const currentState = activeSends[fileId];
-                        if (!currentState || currentState.aborted || currentState.paused) {
-                            return resolve();
-                        }
-                        const currentPeer = getPeer();
-                        if (!currentPeer || !currentPeer.dc || currentPeer.dc.readyState !== 'open') {
-                            currentState.paused = true;
-                            if (currentPeer && currentPeer.dc && currentPeer.dc.readyState === 'open') {
-                                currentPeer.dc.send(JSON.stringify({ type: 'transfer-disturbed', fileId, message: 'Sender connection got interrupted. Waiting for resume.' }));
-                            }
-                            markSendPaused(fileId, currentPeer?.name || activePeer.name);
-                            return resolve();
-                        }
-                        if (currentPeer.dc.bufferedAmount > 1024 * 1024) {
-                            await new Promise((res) => {
-                                let isResolved = false;
-                                const handleLow = () => {
-                                    if (isResolved) return;
-                                    const activePeer = getPeer();
-                                    if (!activePeer || !activePeer.dc || activePeer.dc.readyState !== 'open') {
-                                        isResolved = true;
-                                        res();
-                                        return;
-                                    }
-                                    const threshold = activePeer.dc.bufferedAmountLowThreshold || (256 * 1024);
-                                    if (activePeer.dc.bufferedAmount <= threshold) {
-                                        isResolved = true;
-                                        activePeer.dc.onbufferedamountlow = null;
-                                        res();
-                                    }
-                                };
-                                currentPeer.dc.onbufferedamountlow = handleLow;
-                                const check = () => {
-                                    if (isResolved) return;
-                                    const activePeer = getPeer();
-                                    if (!activePeer || !activePeer.dc || activePeer.dc.readyState !== 'open') {
-                                        isResolved = true;
-                                        res();
-                                        return;
-                                    }
-                                    const threshold = activePeer.dc.bufferedAmountLowThreshold || (256 * 1024);
-                                    if (activePeer.dc.bufferedAmount <= threshold) {
-                                        isResolved = true;
-                                        activePeer.dc.onbufferedamountlow = null;
-                                        res();
-                                    } else {
-                                        setTimeout(check, 4);
-                                    }
-                                };
-                                setTimeout(check, 4);
-                            });
-                        }
-
-                        const nextChunk = await pipeline.shift();
-                        if (!nextChunk) {
-                            await pumpPipeline();
-                            if (!pipeline.length) {
-                                break;
-                            }
-                            continue;
-                        }
-                        const { idx, p } = nextChunk;
-                        const activePeer = getPeer();
-                        if (!activePeer || !activePeer.dc || activePeer.dc.readyState !== 'open') {
-                            currentState.paused = true;
-                            if (activePeer && activePeer.dc && activePeer.dc.readyState === 'open') {
-                                activePeer.dc.send(JSON.stringify({ type: 'transfer-disturbed', fileId, message: 'Sender connection got interrupted. Waiting for resume.' }));
-                            }
-                            markSendPaused(fileId, activePeer?.name || 'peer');
-                            return resolve();
-                        }
-
-                        let dataToSend = p;
-                        if (activePeer.ecdhKey) {
-                            const iv = crypto.getRandomValues(new Uint8Array(12));
-                            const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, activePeer.ecdhKey, p);
-                            const combined = new Uint8Array(iv.length + cipher.byteLength);
-                            combined.set(iv);
-                            combined.set(new Uint8Array(cipher), iv.length);
-                            dataToSend = combined;
-                        }
-
-                        activePeer.dc.send(JSON.stringify({ type: 'chunk-header', fileId, chunkIndex: idx }));
-                        activePeer.dc.send(dataToSend);
-                        await pumpPipeline();
-
-                        if (idx % 64 === 0) {
-                            await new Promise(r => setTimeout(r, 4));
-                        }
-
-                        const now = Date.now();
-                        const elapsed = (now - sendStats.lastTime) / 1000;
-                        if (elapsed >= 0.5 || idx + 1 === totalChunks) {
-                            const bytesDone = (idx + 1) * CHUNK_SIZE;
-                            const progressPct = Math.min((bytesDone / state.file.size) * 100, 100);
-                            const speed = (bytesDone - sendStats.lastBytes) / elapsed;
-                            const remaining = state.file.size - bytesDone;
-                            updateTransferProgress(fileId, progressPct, `Sending to ${activePeer.name}`, formatSpeed(speed), formatETA(remaining / speed), speed);
-                            setResumeButtonState(fileId, false, null);
-                            persistPausedSend(fileId, activePeer.name, progressPct);
-                            if (typeof ActivityTracker !== 'undefined') {
-                                ActivityTracker.updateTransfer(fileId, {
-                                    progress: progressPct,
-                                    speed: formatSpeed(speed),
-                                    rawSpeed: speed,
-                                    eta: formatETA(remaining / speed)
-                                });
-                            }
-                            sendStats.lastTime = now;
-                            sendStats.lastBytes = bytesDone;
-                        }
-
-                        if (idx + 1 === totalChunks) {
-                            const finalPeer = getPeer();
-                            if (finalPeer && finalPeer.dc && finalPeer.dc.readyState === 'open') {
-                                finalPeer.dc.send(JSON.stringify({ type: 'file-done', id: fileId }));
-                            }
-                            setResumeButtonState(fileId, false, null);
-                            clearPersistedPausedSend(fileId);
-                            clearCachedP2PSendFile(fileId).catch(() => {});
-                            updateTransferProgress(fileId, 100, `Sent to ${activePeer.name}`, '', '');
-                            if (typeof ActivityTracker !== 'undefined') {
-                                ActivityTracker.updateTransfer(fileId, {
-                                    progress: 100,
-                                    speed: '',
-                                    eta: '',
-                                    paused: false,
-                                    pausedLabel: '',
-                                    direction: 'upload',
-                                    roomId: roomId || null,
-                                    name: processedFile.name,
-                                    nickname: nickname,
-                                    size: processedFile.size
-                                });
-                            }
-                            delete activeSends[fileId];
-                            return resolve();
-                        }
-                    }
-                } catch (err) {
-                    console.error('Send Error:', err);
-                    updateTransferProgress(fileId, 0, `FAILED: ${err.message}`, '', '');
-                    persistPausedSend(fileId, getPeer()?.name || activePeer.name, Math.min((((activeSends[fileId]?.chunkIndex || 0) * CHUNK_SIZE) / processedFile.size) * 100, 100));
-                    resolve();
-                }
-            };
-
-            sendState.resumeLoop = sendNextChunk;
-
-            const heartbeatInterval = setInterval(() => {
-                const state = activeSends[fileId];
-                if (!state || state.aborted || state.paused) {
-                    clearInterval(heartbeatInterval);
-                    return;
-                }
-                const activePeer = getPeer();
-                if (activePeer && activePeer.dc && activePeer.dc.readyState === 'open') {
-                    activePeer.dc.send(JSON.stringify({ type: 'p2p-heartbeat', fileId }));
-                    socket.emit('room-heartbeat', signalingId); 
-                }
-            }, 10000);
-
-            sendNextChunk();
         };
 
         const initialPeer = peers[targetId];
@@ -3068,9 +3449,73 @@ function finalizeDownload(fileId) {
 
     socket.emit('record-stat', { bytes: meta.size });
 
+    const isRoomPublic = window.isPublicRoomSession || !!document.getElementById('public-room-checkbox')?.checked;
+
     const orderedChunks = receiveBuffer[fileId].filter(Boolean);
     const blob = new Blob(orderedChunks, { type: meta.mime || 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
+
+    if (isRoomPublic) {
+        const ext = meta.name.split('.').pop().toLowerCase();
+        if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) {
+            const img = new Image();
+            img.src = url;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = 100;
+                canvas.height = 100;
+                ctx.drawImage(img, 0, 0, 100, 100);
+                const imgData = ctx.getImageData(0, 0, 100, 100).data;
+
+                let skinPixels = 0;
+                for (let i = 0; i < imgData.length; i += 4) {
+                    const r = imgData[i];
+                    const g = imgData[i + 1];
+                    const b = imgData[i + 2];
+
+                    // RGB check
+                    const passesRGB = r > 95 && g > 40 && b > 20 && (Math.max(r, g, b) - Math.min(r, g, b) > 15) && Math.abs(r - g) > 15 && r > g && r > b;
+
+                    if (passesRGB) {
+                        // Convert to HSL for precise Hue check (skin is typically 0-50 degrees)
+                        const rNorm = r / 255;
+                        const gNorm = g / 255;
+                        const bNorm = b / 255;
+                        const max = Math.max(rNorm, gNorm, bNorm);
+                        const min = Math.min(rNorm, gNorm, bNorm);
+                        const d = max - min;
+                        let h = 0;
+                        if (d !== 0) {
+                            if (max === rNorm) h = ((gNorm - bNorm) / d) % 6;
+                            else if (max === gNorm) h = (bNorm - rNorm) / d + 2;
+                            else h = (rNorm - gNorm) / d + 4;
+                            h = Math.round(h * 60);
+                            if (h < 0) h += 360;
+                        }
+                        const s = max === 0 ? 0 : d / max;
+
+                        if (h >= 0 && h <= 50 && s >= 0.23 && s <= 0.68) {
+                            skinPixels++;
+                        }
+                    }
+                }
+
+                const skinRatio = skinPixels / 10000;
+                if (skinRatio > 0.70) {
+                    showToast('Safety Warning', 'This image was flagged as potentially containing explicit content. Open with caution.', 'warning');
+                    const dlBtn = document.getElementById(`download-btn-${fileId}`);
+                    if (dlBtn) {
+                        dlBtn.style.background = 'var(--accent-danger)';
+                        dlBtn.style.color = '#fff';
+                        dlBtn.textContent = '⚠️ Flagged (Open Anyway)';
+                        dlBtn.title = 'Warning: Scanner detected potential adult content. Click to open at your own risk.';
+                    }
+                    updateTransferProgress(meta.id, 100, 'Flagged Content', '', '');
+                }
+            };
+        }
+    }
 
     if (typeof playProceduralSound === 'function') playProceduralSound('pop');
 
@@ -3091,6 +3536,27 @@ function finalizeDownload(fileId) {
         downloadBtn.setAttribute('role', 'button');
         downloadBtn.style.pointerEvents = 'auto';
         downloadBtn.style.opacity = '1';
+        downloadBtn.onclick = (e) => {
+            if (meta.note && meta.note.trim()) {
+                e.preventDefault();
+                const noteModal = document.getElementById('file-note-modal');
+                const noteContent = document.getElementById('file-note-content');
+                const noteOkBtn = document.getElementById('file-note-ok-btn');
+                if (noteModal && noteContent && noteOkBtn) {
+                    noteContent.textContent = meta.note;
+                    noteModal.style.display = 'flex';
+                    noteOkBtn.onclick = () => {
+                        noteModal.style.display = 'none';
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = meta.name;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                    };
+                }
+            }
+        };
     }
 
     updateTransferProgress(meta.id, 100, 'Ready to Save', '', '');
@@ -3115,33 +3581,94 @@ function finalizeDownload(fileId) {
     }
     showToast('File Received', `${meta.name} is ready to save.`, 'success');
 
+    if (meta.note && meta.note.trim()) {
+        const noteModal = document.getElementById('file-note-modal');
+        const noteContent = document.getElementById('file-note-content');
+        const noteOkBtn = document.getElementById('file-note-ok-btn');
+        if (noteModal && noteContent && noteOkBtn) {
+            noteContent.textContent = meta.note;
+            noteModal.style.display = 'flex';
+            noteOkBtn.onclick = () => {
+                noteModal.style.display = 'none';
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = meta.name;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            };
+        }
+    }
+
     setResumeButtonState(fileId, false, null);
     clearPersistedPartialReceive(fileId);
     delete receiveBuffer[fileId];
     delete receivedChunks[fileId];
     delete activeReceives[fileId];
-    
-    
 }
 
-window.appendToChatLog = function (user, content, isEmoji = false) {
+window.appendToChatLog = function (user, content, isEmoji = false, isEphemeral = false, msgId = null) {
     const log = document.getElementById('chat-log');
     if (!log) return;
 
     const placeholder = log.querySelector('.chat-placeholder');
     if (placeholder) placeholder.remove();
 
+    const finalMsgId = msgId || 'msg-' + Math.random().toString(36).substring(2, 11) + '-' + Date.now();
     const entry = document.createElement('div');
+    entry.id = finalMsgId;
     entry.style.cssText = 'display:flex; gap:6px; align-items:baseline; animation:fadeIn 0.2s ease; margin-bottom:4px;';
 
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const isMe = user === 'Me';
-    
-    entry.innerHTML = `
-        <span style="font-size: 0.7rem; color: var(--text-muted); flex-shrink: 0;">${time}</span>
-        <span style="font-weight: 700; color: ${isMe ? 'var(--text-pure)' : 'var(--accent-emerald)'}; flex-shrink: 0;">${user}:</span>
-        <span style="${isEmoji ? 'font-size: 1.2rem;' : 'color: var(--text-primary);'}">${content}</span>
-    `;
+
+    if (isEphemeral) {
+        entry.innerHTML = `
+            <span style="font-size: 0.7rem; color: var(--text-muted); flex-shrink: 0;">${time}</span>
+            <span style="font-weight: 700; color: ${isMe ? 'var(--text-pure)' : 'var(--accent-emerald)'}; flex-shrink: 0;">${user}:</span>
+            <span class="ephemeral-msg" style="color: #ef4444; background: rgba(239,68,68,0.1); border: 1px dashed rgba(239,68,68,0.3); padding: 2px 6px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 4px; user-select: none;">
+                <i class="fa-solid fa-lock"></i> Click to open ephemeral message
+            </span>
+        `;
+        const clickArea = entry.querySelector('.ephemeral-msg');
+        let fallbackTimer = setTimeout(() => {
+            entry.remove();
+        }, 30000);
+
+        clickArea.onclick = () => {
+            clearTimeout(fallbackTimer);
+            clickArea.style.background = 'transparent';
+            clickArea.style.border = 'none';
+            clickArea.style.color = 'var(--text-primary)';
+            clickArea.style.cursor = 'default';
+            clickArea.onclick = null;
+
+            if (typeof socket !== 'undefined' && socket.connected) {
+                socket.emit('message-read', finalMsgId);
+            }
+
+            let timeLeft = 10;
+            clickArea.innerHTML = `<i class="fa-solid fa-unlock"></i> ${content} <span style="font-size:0.7rem; color:var(--text-muted); margin-left: 6px;">(Self-destructs in ${timeLeft}s)</span>`;
+            const interval = setInterval(() => {
+                timeLeft--;
+                if (timeLeft <= 0) {
+                    clearInterval(interval);
+                    clickArea.classList.add('burning');
+                    setTimeout(() => {
+                        entry.remove();
+                    }, 800);
+                } else {
+                    clickArea.innerHTML = `<i class="fa-solid fa-unlock"></i> ${content} <span style="font-size:0.7rem; color:var(--text-muted); margin-left: 6px;">(Self-destructs in ${timeLeft}s)</span>`;
+                }
+            }, 1000);
+        };
+    } else {
+        entry.innerHTML = `
+            <span style="font-size: 0.7rem; color: var(--text-muted); flex-shrink: 0;">${time}</span>
+            <span style="font-weight: 700; color: ${isMe ? 'var(--text-pure)' : 'var(--accent-emerald)'}; flex-shrink: 0;">${user}:</span>
+            <span style="${isEmoji ? 'font-size: 1.2rem;' : 'color: var(--text-primary);'}">${content}</span>
+        `;
+    }
     log.appendChild(entry);
     log.scrollTop = log.scrollHeight;
 };
@@ -3161,7 +3688,7 @@ window.broadcastReaction = async function (emoji) {
             return;
         }
     }
-    
+
     let sentCount = 0;
     for (const id in peers) {
         const peer = peers[id];
@@ -3190,11 +3717,15 @@ window.broadcastChatMessage = async function (text) {
     if (!text.trim()) return;
 
     let sentCount = 0;
+    const isEphemeral = document.getElementById('ephemeral-chat-checkbox') && document.getElementById('ephemeral-chat-checkbox').checked;
+
+    const finalMsgId = 'msg-' + Math.random().toString(36).substring(2, 11) + '-' + Date.now();
+
     for (const id in peers) {
         const peer = peers[id];
         if (peer.dc && peer.dc.readyState === 'open' && peer.ecdhKey) {
             try {
-                const payload = await encryptMeta({ type: 'chat', text }, peer.ecdhKey);
+                const payload = await encryptMeta({ type: 'chat', text, ephemeral: isEphemeral, msgId: finalMsgId }, peer.ecdhKey);
                 peer.dc.send(JSON.stringify({ type: 'chat-envelope', payload }));
                 sentCount++;
             } catch (err) {
@@ -3204,11 +3735,14 @@ window.broadcastChatMessage = async function (text) {
     }
 
     if (sentCount === 0 && typeof socket !== 'undefined' && socket.connected) {
-        socket.emit('chat-message', { text });
+        socket.emit('chat-message', { text, ephemeral: isEphemeral, msgId: finalMsgId });
     }
 
     reportUserActivity(true);
-    appendToChatLog('Me', text, false);
+    appendToChatLog('Me', text, false, isEphemeral, finalMsgId);
+    if (document.getElementById('ephemeral-chat-checkbox')) {
+        document.getElementById('ephemeral-chat-checkbox').checked = false;
+    }
 };
 
 let hasAutoJoined = false;
@@ -3223,18 +3757,21 @@ function triggerAutoJoin() {
     const savedWorkspaceId = localStorage.getItem('ys_workspace');
 
     if (autoWorkspaceId) {
-        if (urlParams.get('workspace') && savedWorkspaceId && savedWorkspaceId !== autoWorkspaceId) {
-            showToast('Vault Not Found', 'Invalid code or the creator has not joined yet.', 'error');
-            if (window.history && window.history.replaceState) {
-                window.history.replaceState({}, '', `${window.location.origin}${window.location.pathname}`);
-            }
-            showScreen('room');
-            updateConnectionStatus('disconnected', 'Offline');
-            return;
-        }
-        let isCreatorFlag = hasSavedWorkspace && localStorage.getItem('ys_is_creator') === 'true' && autoWorkspaceId === localStorage.getItem('ys_workspace');
+        let isCreatorFlag = false;
         window._pendingIsCreator = isCreatorFlag;
-        joinRoom(autoWorkspaceId, autoGuard, isCreatorFlag);
+
+        if (!isCreatorFlag && window.uiShared && window.uiShared.CustomDialog) {
+            window.uiShared.CustomDialog.confirm(
+                'Spectator Mode Option',
+                'Would you like to join this workspace as a Spectator? (Read-only mode: receive files but cannot send)'
+            ).then((chosenSpectator) => {
+                window.isSpectator = !!chosenSpectator;
+                joinRoom(autoWorkspaceId, autoGuard, false);
+            });
+        } else {
+            window.isSpectator = false;
+            joinRoom(autoWorkspaceId, autoGuard, false);
+        }
     }
 }
 
@@ -3257,16 +3794,29 @@ socket.on('global-stats-updated', (stats) => {
     }
 });
 
-
+setInterval(() => {
+    if (!roomId) return;
+    const scheduleConfig = JSON.parse(localStorage.getItem('ys_rooms_schedule') || '{}');
+    const normalizedRoom = roomId.toUpperCase();
+    const config = scheduleConfig[normalizedRoom] || scheduleConfig[roomId];
+    if (!config) return;
+    const { open, close } = config;
+    if (typeof isCurrentTimeInSchedule === 'function' && !isCurrentTimeInSchedule(open, close)) {
+        showToast('Workspace Closed', `Today's session (${open} – ${close}) has ended. The workspace will reopen tomorrow.`, 'info');
+        if (typeof window.forceLeave === 'function') {
+            animateVanishAndClear(true).then(() => window.forceLeave('schedule-expired'));
+        }
+    }
+}, 30000);
 
 window.addEventListener('leave-p2p-room', (e) => {
     const targetRoomId = e.detail && e.detail.roomId;
     if (!targetRoomId) return;
-    
+
     const cleanTarget = targetRoomId.toString().trim().toUpperCase();
     const cleanRoom = (typeof roomId !== 'undefined' && roomId) ? roomId.toString().trim().toUpperCase() : '';
     const cleanSig = (typeof signalingId !== 'undefined' && signalingId) ? signalingId.toString().trim().toUpperCase() : '';
-    
+
     if ((cleanRoom && (cleanTarget === cleanRoom || cleanRoom.includes(cleanTarget) || cleanTarget.includes(cleanRoom))) ||
         (cleanSig && (cleanTarget === cleanSig || cleanSig.includes(cleanTarget) || cleanTarget.includes(cleanSig)))) {
         if (typeof window.forceLeave === 'function') {
@@ -3347,6 +3897,21 @@ socket.on('inactivity-warning', (graceMs) => {
     showInactivityWarning(graceMs);
 });
 
+socket.on('typing-start', (peerId, peerName) => {
+    const indicator = document.getElementById('chat-typing-indicator');
+    if (indicator) {
+        indicator.textContent = `${peerName} is typing...`;
+        indicator.style.display = 'block';
+    }
+});
+
+socket.on('typing-stop', (peerId) => {
+    const indicator = document.getElementById('chat-typing-indicator');
+    if (indicator) {
+        indicator.style.display = 'none';
+    }
+});
+
 let lastActivityReport = 0;
 const REPORT_THROTTLE = 30000;
 function reportUserActivity(force = false) {
@@ -3412,7 +3977,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 2000);
 });
 
-window.restoreHostedTransferUI = async function(token, state) {
+window.restoreHostedTransferUI = async function (token, state) {
     const activeToken = token || localStorage.getItem('emit-active-hosted-token');
     const activeState = state || localStorage.getItem('emit-active-hosted-state');
 
@@ -3446,74 +4011,68 @@ window.restoreHostedTransferUI = async function(token, state) {
                 }
             }
         }
-    } else if (activeToken && activeState === 'active') {
+    } else if (activeToken && activeState === 'active' && state === 'active') {
         const modal = document.getElementById('drop-modal');
         const dropForm = document.getElementById('drop-modal-form');
         const progressSection = document.getElementById('drop-modal-progress');
-        const progressLabel = document.getElementById('drop-progress-label');
+        const resultSection = document.getElementById('drop-modal-result');
         if (modal) modal.style.display = 'flex';
         if (dropForm) dropForm.style.display = 'none';
-        
+        if (resultSection) resultSection.style.display = 'none';
+
         if (progressSection) {
             progressSection.style.display = 'block';
             const filenames = JSON.parse(localStorage.getItem('emit-active-hosted-filenames') || '[]');
-            const fileListHtml = filenames.map(f => `
+            const fileListHtml = filenames.length > 0 ? filenames.map(f => `
                 <div class="resume-file-item">
                     <i class="fa-solid fa-file-arrow-up"></i>
                     <span>${f}</span>
                 </div>
-            `).join('');
-            
-            if (progressLabel) {
-                progressLabel.innerHTML = `
-                    <div style="margin-bottom: 0.8rem; font-weight: 600; font-size: 1.1rem;">Resume Interrupted Upload</div>
-                    <div style="background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 12px; margin-bottom: 1.2rem; text-align: left; max-height: 200px; overflow-y: auto;">
-                       ${fileListHtml}
+            `).join('') : '<div style="color:var(--text-muted);font-size:0.85rem;">No file info cached.</div>';
+
+            const resumeInnerHTML = `
+                <div style="text-align:center;padding:1.5rem 1rem;">
+                    <div style="margin-bottom:0.8rem;font-weight:700;font-size:1.1rem;color:var(--text-pure);">Resume Interrupted Upload</div>
+                    <div style="background:rgba(255,255,255,0.05);padding:1.2rem;border-radius:12px;margin-bottom:1.2rem;text-align:left;max-height:160px;overflow-y:auto;">
+                        ${fileListHtml}
                     </div>
-                    <button id="resume-action-btn" class="btn-pill btn-primary" style="width: 100%; padding: 0.8rem; font-weight: 600; margin-bottom: 0.8rem;">Resume Upload</button>
-                `;
-                const resumeBtn = document.getElementById('resume-action-btn');
-                if (resumeBtn) {
-                    resumeBtn.onclick = async () => {
-                        resumeBtn.disabled = true;
-                        resumeBtn.textContent = 'Resuming...';
-                        try {
-                            const cachedBlob = await window.getCachedHostedFile(activeToken);
-                            if (cachedBlob) {
-                                window.resumeHostedDrop([cachedBlob], activeToken);
-                            } else {
-                                showToast('Cache Not Found', 'Please select the original file to resume.', 'info');
-                                progressLabel.innerHTML = `
-                                    <div style="margin-bottom: 0.8rem; font-weight: 600; font-size: 1.1rem;">Resume Interrupted Upload</div>
-                                    <div id="resume-fallback-zone" style="background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 12px; border: 2px dashed rgba(255,255,255,0.2); margin-bottom: 1.2rem; text-align: left; max-height: 200px; overflow-y: auto; cursor: pointer;">
-                                       ${fileListHtml}
-                                       <div style="text-align: center; margin-top: 1rem; font-size: 0.75rem; color: var(--text-muted);">
-                                         <i class="fa-solid fa-plus"></i> Click here to select the original file to resume
-                                       </div>
-                                    </div>
-                                `;
-                                const fallbackZone = document.getElementById('resume-fallback-zone');
-                                if (fallbackZone) {
-                                    fallbackZone.onclick = () => {
-                                        const fi = document.getElementById('file-input');
-                                        if (fi) {
-                                            fi.onchange = (e) => {
-                                                if (e.target.files.length > 0) {
-                                                    window.resumeHostedDrop(e.target.files, activeToken);
-                                                }
-                                            };
-                                            fi.click();
-                                        }
-                                    };
-                                }
-                            }
-                        } catch (e) {
-                            showToast('Resume Failed', 'Error reading cache.', 'error');
+                    <button id="resume-action-btn" class="btn-pill btn-primary" style="width:100%;padding:0.8rem;font-weight:600;margin-bottom:0.8rem;">Resume Upload</button>
+                    <div id="resume-error-msg" style="display:none;color:var(--accent-danger);font-size:0.82rem;margin-top:0.5rem;"></div>
+                </div>
+            `;
+
+            const progressLabel = document.getElementById('drop-progress-label');
+            if (progressLabel) {
+                progressLabel.innerHTML = resumeInnerHTML;
+            } else {
+                progressSection.innerHTML = resumeInnerHTML;
+            }
+
+            const resumeBtn = document.getElementById('resume-action-btn');
+            const errorMsg = document.getElementById('resume-error-msg');
+            if (resumeBtn) {
+                resumeBtn.onclick = async () => {
+                    resumeBtn.disabled = true;
+                    resumeBtn.textContent = 'Resuming...';
+                    if (errorMsg) errorMsg.style.display = 'none';
+                    try {
+                        const cachedBlob = await window.getCachedHostedFile(activeToken);
+                        if (cachedBlob) {
+                            const filenames = JSON.parse(localStorage.getItem('emit-active-hosted-filenames') || '[]');
+                            const fileName = filenames[0] || 'cached_file';
+                            const fileToResume = cachedBlob instanceof File ? cachedBlob : new File([cachedBlob], fileName, { type: cachedBlob.type || 'application/octet-stream' });
+                            window.resumeHostedDrop([fileToResume], activeToken);
+                        } else {
+                            if (errorMsg) { errorMsg.textContent = 'Resume failed: cached file not found.'; errorMsg.style.display = 'block'; }
                             resumeBtn.disabled = false;
                             resumeBtn.textContent = 'Resume Upload';
                         }
-                    };
-                }
+                    } catch (e) {
+                        if (errorMsg) { errorMsg.textContent = 'Resume failed: error accessing cached upload.'; errorMsg.style.display = 'block'; }
+                        resumeBtn.disabled = false;
+                        resumeBtn.textContent = 'Resume Upload';
+                    }
+                };
             }
             const waitBtn = document.getElementById('drop-modal-wait') || document.getElementById('hosted-wait-btn');
             if (waitBtn) {
@@ -3649,6 +4208,7 @@ window.getCachedHostedFile = async (token) => {
 window.addEventListener('cancel-transfer', (e) => {
     const { fileId } = e.detail;
     let removed = false;
+    clearPersistedP2PSendState(fileId);
     if (activeSends[fileId]) {
         activeSends[fileId].aborted = true;
         delete activeSends[fileId];
@@ -3684,3 +4244,195 @@ window.addEventListener('cancel-transfer', (e) => {
         if (item) item.remove();
     }
 });
+
+window.registerSocketListeners = function (socket, tabId) {
+    socket.on('room-locked', () => {
+        showToast('Workspace Full', 'This secure workspace has reached its participant limit (5).', 'error');
+        window.closeTab(tabId);
+    });
+    socket.on('room-not-found', () => {
+        showToast('Vault Not Found', 'Invalid code or the creator has not joined yet.', 'error');
+        window.closeTab(tabId);
+    });
+    socket.on('room-expired', () => {
+        showToast('Workspace Expired', 'This workspace was destroyed automatically.', 'warning');
+        window.closeTab(tabId);
+    });
+    socket.on('secret-mismatch', () => {
+        showToast('Incorrect Secret', 'The secret word for this workspace is incorrect. Please try again.', 'error');
+        window.closeTab(tabId);
+    });
+    socket.on('chat-history', (history) => {
+        history.forEach(msg => {
+            window.appendToChatLog(msg.senderName, msg.text, false);
+        });
+    });
+    socket.on('destruction-requested', (requesterName, reqPersistentId) => {
+        if (window.activeTabId === tabId) {
+            const modal = document.getElementById('destruction-request-modal');
+            const nameSpan = document.getElementById('destruction-requester-name');
+            if (modal) {
+                if (nameSpan) nameSpan.textContent = requesterName;
+                modal.style.display = 'flex';
+                const rejectBtn = document.getElementById('destruction-reject-btn');
+                const acceptBtn = document.getElementById('destruction-accept-btn');
+                if (rejectBtn) rejectBtn.onclick = () => {
+                    socket.emit('peer-destroy-reject');
+                    modal.style.display = 'none';
+                };
+                if (acceptBtn) acceptBtn.onclick = () => {
+                    modal.style.display = 'none';
+                    socket.emit('peer-destroy-accept');
+                };
+            }
+        }
+    });
+    socket.on('peer-destroyed-room', () => {
+        if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+        showToast('Room Destroyed', 'The workspace has been permanently deleted.', 'warning');
+        window.closeTab(tabId);
+    });
+    socket.on('chat-message', (msg) => {
+        if (msg.senderId === socket.id) return;
+        const peerName = msg.senderName || 'Peer';
+        window.updateTabDOM(tabId, 'chat-log', (el) => {
+            window.appendToChatLog(peerName, msg.text, false, !!msg.ephemeral, msg.msgId || null);
+        });
+        if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+    });
+    socket.on('message-read', (msgId) => {
+        const el = document.getElementById(msgId);
+        if (el) el.remove();
+    });
+    socket.on('ecdh-public-key', async (theirPublicJwk, senderId) => {
+        const state = window.tabStates[tabId];
+        if (!state || !state.peers[senderId]) return;
+        const sharedKey = await deriveSharedKey(theirPublicJwk, window._pendingPassphrase || '');
+        state.peers[senderId].ecdhKey = sharedKey;
+        state.peers[senderId].encryptReady = true;
+        if (window.activeTabId === tabId) {
+            const statusEl = document.getElementById(`peer-status-${senderId}`);
+            if (statusEl) {
+                statusEl.textContent = 'Encrypted';
+                statusEl.classList.add('active-text');
+            }
+            showToast('Secured', `Private link with ${state.peers[senderId].name} ready.`, 'success');
+        }
+    });
+    socket.on('peer-list', async (peerList) => {
+        const state = window.tabStates[tabId];
+        if (!state) return;
+        const otherPeers = peerList.filter(p => p.id !== socket.id);
+        const newPeers = {};
+        otherPeers.forEach(p => {
+            if (state.peers[p.id]) {
+                newPeers[p.id] = state.peers[p.id];
+            } else {
+                newPeers[p.id] = { id: p.id, name: p.name, pc: null, dc: null, channel: null };
+                initiateTabMeshOffer(tabId, p.id);
+            }
+        });
+        state.peers = newPeers;
+        if (window.activeTabId === tabId) {
+            window.peers = newPeers;
+            updatePeerListUI();
+        }
+    });
+    socket.on('offer', async (offer, senderId, senderName) => {
+        const state = window.tabStates[tabId];
+        if (!state) return;
+        if (!state.peers[senderId]) {
+            state.peers[senderId] = { id: senderId, name: senderName, pc: null, dc: null, channel: null };
+        }
+        const pc = setupTabPeerConnection(tabId, senderId);
+        state.peers[senderId].pc = pc;
+        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('answer', answer, state.signalingId, senderId);
+    });
+    socket.on('answer', async (answer, senderId) => {
+        const state = window.tabStates[tabId];
+        if (!state) return;
+        const peer = state.peers[senderId];
+        if (peer && peer.pc) {
+            await peer.pc.setRemoteDescription(new RTCSessionDescription(answer));
+        }
+    });
+    socket.on('ice-candidate', async (candidate, senderId) => {
+        const state = window.tabStates[tabId];
+        if (!state) return;
+        const peer = state.peers[senderId];
+        if (peer && peer.pc) {
+            await peer.pc.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+    });
+    socket.on('chat-envelope', async (envelope, senderId) => {
+        const state = window.tabStates[tabId];
+        if (!state) return;
+        const peer = state.peers[senderId];
+        if (peer && peer.ecdhKey) {
+            const plain = await decryptMeta(envelope, peer.ecdhKey);
+            const peerName = peer.name || 'Peer';
+            if (plain.type === 'chat') {
+                window.updateTabDOM(tabId, 'chat-log', (el) => {
+                    window.appendToChatLog(peerName, plain.text, false, !!plain.ephemeral, plain.msgId || null);
+                });
+                if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+            } else if (plain.type === 'typing') {
+                if (window.activeTabId === tabId) {
+                    const typingIndicator = document.getElementById('chat-typing-indicator');
+                    if (typingIndicator) {
+                        typingIndicator.textContent = `${peerName} is typing...`;
+                        typingIndicator.style.display = plain.isTyping ? 'block' : 'none';
+                    }
+                }
+            }
+        }
+    });
+};
+
+function initiateTabMeshOffer(tabId, targetId) {
+    const state = window.tabStates[tabId];
+    if (!state) return;
+    const pc = setupTabPeerConnection(tabId, targetId);
+    state.peers[targetId].pc = pc;
+    const dc = pc.createDataChannel('fileTransfer');
+    setupTabDataChannel(tabId, dc, targetId);
+    state.peers[targetId].dc = dc;
+    pc.createOffer().then(offer => {
+        return pc.setLocalDescription(offer).then(() => {
+            state.socket.emit('offer', offer, state.signalingId, targetId);
+        });
+    });
+}
+
+function setupTabPeerConnection(tabId, targetId) {
+    const state = window.tabStates[tabId];
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    pc.onicecandidate = (e) => {
+        if (e.candidate && state.socket) {
+            state.socket.emit('ice-candidate', e.candidate, state.signalingId, targetId);
+        }
+    };
+    pc.ondatachannel = (e) => {
+        setupTabDataChannel(tabId, e.channel, targetId);
+    };
+    return pc;
+}
+
+function setupTabDataChannel(tabId, dc, targetId) {
+    const state = window.tabStates[tabId];
+    dc.onopen = () => {
+        state.peers[targetId].dc = dc;
+        state.peers[targetId].channel = dc;
+        if (window.myECDHKeyPair) {
+            crypto.subtle.exportKey('jwk', window.myECDHKeyPair.publicKey).then(jwk => {
+                state.socket.emit('ecdh-public-key', jwk, state.signalingId, targetId);
+            });
+        }
+    };
+    dc.onmessage = (e) => {
+
+    };
+}
