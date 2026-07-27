@@ -692,9 +692,10 @@ async function receiveHostedDrop() {
             return;
         }
 
-        const chunkSize = meta.size > 0 ? (meta.chunkSize || fragPayload.cs || HOSTED_CHUNK_SIZE_BYTES) : HOSTED_CHUNK_SIZE_BYTES;
+        const chunkSize = meta.size > 0 ? (meta.chunkSize || (Array.isArray(fragPayload) ? fragPayload[3] : fragPayload.cs) || HOSTED_CHUNK_SIZE_BYTES) : HOSTED_CHUNK_SIZE_BYTES;
         const chunkCount = meta.chunkCount;
-        const ivPrefix4 = b64ToUint8(fragPayload.iv);
+        const ivB64 = Array.isArray(fragPayload) ? fragPayload[2] : fragPayload.iv;
+        const ivPrefix4 = b64ToUint8(ivB64);
 
         const canStreamToDisk = typeof window.showSaveFilePicker === 'function';
         const useBlob = meta.size <= MEMORY_SAFE_DOWNLOAD_MAX_BYTES || !canStreamToDisk;
