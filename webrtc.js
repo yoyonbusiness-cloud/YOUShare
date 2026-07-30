@@ -1608,13 +1608,13 @@ socket.on('secret-mismatch', () => {
     syncDebugState();
     if (typeof showScreen === 'function') showScreen('room');
     updateConnectionStatus('disconnected');
-    
+
     if (wasAlreadyPrompted) {
         showToast('Incorrect Passcode', 'The secret word for this workspace is incorrect. Please try again.', 'error');
     } else {
         showToast('Passcode Required', 'This workspace is protected by a secret passcode. Please enter it to join.', 'error');
     }
-    
+
     if (typeof ui !== 'undefined' && ui.panels.secretPromptModal) {
         ui.panels.secretPromptModal.style.display = 'flex';
         if (ui.inputs.promptSecret) {
@@ -3059,7 +3059,7 @@ window.encryptMeta = encryptMeta;
 
 let p2pTransferQueue = [];
 let activeP2PCount = 0;
-const MAX_CONCURRENT_P2P = 1;
+const MAX_CONCURRENT_P2P = Infinity;
 
 function processP2PQueue() {
     while (activeP2PCount < MAX_CONCURRENT_P2P && p2pTransferQueue.length > 0) {
@@ -3127,7 +3127,7 @@ async function handleFiles(files) {
             updateTransferProgress(pendingId, 0, `Preparing to send to ${peerArray[0].name}`, '', '');
             const pendingItem = document.getElementById(`item-${pendingId}`);
             if (pendingItem) pendingItem.dataset.pendingTransfer = 'true';
-            p2pTransferQueue.push({ file: processedFile, targetId, nickname: '', note });
+            p2pTransferQueue.push({ file: processedFile, targetId, nickname: '', note, pendingId });
         }
         processP2PQueue();
         if (noteInput) noteInput.value = '';
@@ -3169,7 +3169,7 @@ async function handleFiles(files) {
                         const processedFile = (stealthMode && window.uiShared?.stripMetadata) ? await window.uiShared.stripMetadata(sf.file) : sf.file;
                         updateTransferProgress(sf.pendingId, 0, `Preparing to send to ${peerArray[0].name}`, '', '');
                         if (pendingItem) pendingItem.dataset.pendingTransfer = 'true';
-                        p2pTransferQueue.push({ file: processedFile, targetId, nickname: '', note });
+                        p2pTransferQueue.push({ file: processedFile, targetId, nickname: '', note, pendingId: sf.pendingId });
                         processP2PQueue();
                     })();
                 }
@@ -4209,6 +4209,13 @@ window.addEventListener('cancel-transfer', (e) => {
     const { fileId } = e.detail;
     let removed = false;
     clearPersistedP2PSendState(fileId);
+    const queueIdx = p2pTransferQueue.findIndex(item => item.pendingId === fileId || item.fileId === fileId || (item.file && item.file._emitId === fileId));
+    if (queueIdx !== -1) {
+        p2pTransferQueue.splice(queueIdx, 1);
+        const item = document.getElementById(`item-${fileId}`);
+        if (item) item.remove();
+        removed = true;
+    }
     if (activeSends[fileId]) {
         activeSends[fileId].aborted = true;
         delete activeSends[fileId];

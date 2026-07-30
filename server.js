@@ -400,13 +400,15 @@ function startServer(port = 3000) {
         }
 
         const expires = session.expires || (Date.now() + session.expiryMs);
+        const isCollection = req.body.isCollection === 'true' || req.body.isCollection === true;
         const manifest = {
             mode: 'chunked',
             filename: session.filename,
             size: session.size,
             expires,
             chunkSize: session.chunkSize,
-            chunkCount: session.chunkCount
+            chunkCount: session.chunkCount,
+            isCollection: isCollection
         };
 
         fs.writeFileSync(path.join(basePath, 'manifest.json'), JSON.stringify(manifest));
@@ -460,7 +462,8 @@ function startServer(port = 3000) {
                 size: meta.size,
                 expires: meta.expires,
                 chunkSize: meta.chunkSize,
-                chunkCount: meta.chunkCount
+                chunkCount: meta.chunkCount,
+                isCollection: !!meta.isCollection || (meta.filename && meta.filename.endsWith('.json'))
             });
             return;
         }

@@ -117,9 +117,11 @@ async function uploadHostedChunk({ token, index, cipherBuf, onProgress }) {
     });
 }
 
-async function finalizeHostedUploadSession(token) {
+async function finalizeHostedUploadSession(token, payload = null, isCollection = false) {
     const fd = new FormData();
     fd.append('token', token);
+    if (payload) fd.append('payload', JSON.stringify(payload));
+    if (isCollection) fd.append('isCollection', 'true');
     const res = await fetch('/upload-finalize', { method: 'POST', body: fd });
     if (!res.ok) throw new Error('Failed to finalize upload: ' + (await res.text()));
     return await res.json();
@@ -172,13 +174,7 @@ async function hostedDrop(file, onProgress, durationMs = 60 * 60 * 1000, nicknam
     }
 
     const ivPrefix4 = existingResume?.ivPrefix4 ? b64ToUint8(existingResume.ivPrefix4) : crypto.getRandomValues(new Uint8Array(IV_PREFIX_BYTES));
-    const payload = {
-        v: 1,
-        k: keyB64,
-        iv: uint8ToB64(ivPrefix4),
-        cs: chunkSize,
-        cc: chunkCount
-    };
+    const payload = [1, keyB64, uint8ToB64(ivPrefix4), chunkSize, chunkCount];
 
     let completedChunks = 0;
     let uploadedChunks = new Set();
@@ -298,7 +294,7 @@ async function hostedDrop(file, onProgress, durationMs = 60 * 60 * 1000, nicknam
     clearHostedResumeState(token);
     if (typeof ActivityTracker !== 'undefined') ActivityTracker.setHostedLinkResuming(token, false);
     onProgress?.('finalizing', 100);
-    const finalizeResult = await finalizeHostedUploadSession(token);
+    const finalizeResult = await finalizeHostedUploadSession(token, payload, !!options.isCollection);
     const finalizedInfo = (finalizeResult && finalizeResult.expires)
         ? finalizeResult
         : await fetchHostedDropInfo(token);
@@ -516,14 +512,15 @@ async function receiveHostedDrop() {
         if (statusEl) statusEl.textContent = 'Large file requires picking location to stream safely.';
     }
 
-    if (meta.filename && meta.filename.endsWith('.json')) {
+    if (meta.isCollection || (meta.filename && meta.filename.endsWith('.json'))) {
         try {
             const collectionKey = await importDropKey(keyB64);
             let rawJson = null;
 
             if (isChunked && meta.chunkCount) {
                 const cChunkCount = meta.chunkCount;
-                const cIvPrefix4 = b64ToUint8(fragPayload.iv);
+                const cIvB64 = Array.isArray(fragPayload) ? fragPayload[2] : fragPayload.iv;
+                const cIvPrefix4 = b64ToUint8(cIvB64);
                 const cParts = [];
 
                 for (let ci = 0; ci < cChunkCount; ci++) {
@@ -605,7 +602,8 @@ async function receiveHostedDrop() {
                                 const fileHash = fileUrl.hash;
                                 const fileRawFrag = decodeURIComponent(fileHash.slice(5));
                                 const fileFrag = JSON.parse(fileRawFrag);
-                                const fileKeyB64 = fileFrag.k;
+                                const fileKeyB64 = Array.isArray(fileFrag) ? fileFrag[1] : fileFrag.k;
+                                const fileIvB64 = Array.isArray(fileFrag) ? fileFrag[2] : fileFrag.iv;
                                 const fileKey = await importDropKey(fileKeyB64);
 
                                 const fileInfoResp = await fetch(`/drop-info/${fileToken}`);
@@ -613,7 +611,7 @@ async function receiveHostedDrop() {
                                 const fileMeta = await fileInfoResp.json();
 
                                 if (fileMeta.mode === 'chunked' && fileMeta.chunkCount) {
-                                    const fIvPrefix4 = b64ToUint8(fileFrag.iv);
+                                    const fIvPrefix4 = b64ToUint8(fileIvB64);
                                     const fParts = [];
                                     for (let fi = 0; fi < fileMeta.chunkCount; fi++) {
                                         dlBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${fi + 1}/${fileMeta.chunkCount}`;
