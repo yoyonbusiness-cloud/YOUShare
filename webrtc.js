@@ -3096,7 +3096,6 @@ async function handleFiles(files) {
         showToast('Spectator Mode', 'You joined as spectator and cannot send files.', 'warning');
         return;
     }
-    const targetId = peerArray[0].id;
     const stealthMode = document.getElementById('stealth-mode-checkbox') && document.getElementById('stealth-mode-checkbox').checked;
     if (stealthMode) {
         const confirmed = await window.uiShared.CustomDialog.confirm('Stealth Mode Active', 'All metadata will be stripped from images before transfer. Proceed?');
@@ -3122,12 +3121,14 @@ async function handleFiles(files) {
     const doSend = async () => {
         for (let f of files) {
             const processedFile = (stealthMode && window.uiShared?.stripMetadata) ? await window.uiShared.stripMetadata(f) : f;
-            const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-            createTransferElement(pendingId, processedFile.name, processedFile.size, false, processedFile, '');
-            updateTransferProgress(pendingId, 0, `Preparing to send to ${peerArray[0].name}`, '', '');
-            const pendingItem = document.getElementById(`item-${pendingId}`);
-            if (pendingItem) pendingItem.dataset.pendingTransfer = 'true';
-            p2pTransferQueue.push({ file: processedFile, targetId, nickname: '', note, pendingId });
+            for (let peer of peerArray) {
+                const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                createTransferElement(pendingId, processedFile.name, processedFile.size, false, processedFile, '');
+                updateTransferProgress(pendingId, 0, `Preparing to send to ${peer.name}`, '', '');
+                const pendingItem = document.getElementById(`item-${pendingId}`);
+                if (pendingItem) pendingItem.dataset.pendingTransfer = 'true';
+                p2pTransferQueue.push({ file: processedFile, targetId: peer.id, nickname: '', note, pendingId });
+            }
         }
         processP2PQueue();
         if (noteInput) noteInput.value = '';
@@ -3141,21 +3142,23 @@ async function handleFiles(files) {
 
         const scheduledFiles = [];
         for (let f of files) {
-            const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-            createTransferElement(pendingId, f.name, f.size, false, null, '');
-            updateTransferProgress(pendingId, 0, `Scheduled (in ${minutes}m)`, '', '');
+            for (let peer of peerArray) {
+                const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                createTransferElement(pendingId, f.name, f.size, false, null, '');
+                updateTransferProgress(pendingId, 0, `Scheduled (in ${minutes}m)`, '', '');
 
-            if (typeof ActivityTracker !== 'undefined') {
-                ActivityTracker.addTransfer(pendingId, {
-                    name: f.name,
-                    size: f.size,
-                    direction: 'upload',
-                    progress: 0,
-                    speed: 'Scheduled',
-                    eta: `${minutes}m`
-                });
+                if (typeof ActivityTracker !== 'undefined') {
+                    ActivityTracker.addTransfer(pendingId, {
+                        name: f.name,
+                        size: f.size,
+                        direction: 'upload',
+                        progress: 0,
+                        speed: 'Scheduled',
+                        eta: `${minutes}m`
+                    });
+                }
+                scheduledFiles.push({ pendingId, file: f, peer });
             }
-            scheduledFiles.push({ pendingId, file: f });
         }
 
         const interval = setInterval(() => {
@@ -3167,9 +3170,9 @@ async function handleFiles(files) {
                     if (!pendingItem) continue;
                     (async () => {
                         const processedFile = (stealthMode && window.uiShared?.stripMetadata) ? await window.uiShared.stripMetadata(sf.file) : sf.file;
-                        updateTransferProgress(sf.pendingId, 0, `Preparing to send to ${peerArray[0].name}`, '', '');
+                        updateTransferProgress(sf.pendingId, 0, `Preparing to send to ${sf.peer.name}`, '', '');
                         if (pendingItem) pendingItem.dataset.pendingTransfer = 'true';
-                        p2pTransferQueue.push({ file: processedFile, targetId, nickname: '', note, pendingId: sf.pendingId });
+                        p2pTransferQueue.push({ file: processedFile, targetId: sf.peer.id, nickname: '', note, pendingId: sf.pendingId });
                         processP2PQueue();
                     })();
                 }
