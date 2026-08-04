@@ -4446,3 +4446,6 @@ function setupTabDataChannel(tabId, dc, targetId) {
 
     };
 }
+
+    };
+}
