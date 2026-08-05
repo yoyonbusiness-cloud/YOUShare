@@ -59,9 +59,25 @@
                     rootStyle.setProperty('--text-primary', adjustColor(savedCustom.text, -20));
                     rootStyle.setProperty('--text-secondary', adjustColor(savedCustom.text, -60));
                     rootStyle.setProperty('--btn-white-text', isDarkColor(savedCustom.primary) ? '#ffffff' : '#000000');
-                } catch (e) { }
+            window.startRgbSpectrumEngine = function () {
+                if (window._rgbInterval) clearInterval(window._rgbInterval);
+                let hue = 0;
+                window._rgbInterval = setInterval(() => {
+                    hue = (hue + 2) % 360;
+                    const color = `hsl(${hue}, 90%, 55%)`;
+                    const bgGrad = `hsl(${hue}, 60%, 8%)`;
+                    const rootStyle = document.documentElement.style;
+                    rootStyle.setProperty('--accent-emerald', color);
+                    rootStyle.setProperty('--btn-white-bg', color);
+                    rootStyle.setProperty('--btn-ghost-border', `hsl(${hue}, 80%, 45%)`);
+                    rootStyle.setProperty('--btn-ghost-bg', `hsla(${hue}, 90%, 55%, 0.1)`);
+                    rootStyle.setProperty('--emerald-bg', `hsla(${hue}, 90%, 55%, 0.12)`);
+                    rootStyle.setProperty('--bg-grad-center', bgGrad);
+                }, 50);
+            };
+            if (theme === 'rgb-spectrum') {
+                window.startRgbSpectrumEngine();
             }
-        })();
     </script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -108,8 +124,8 @@
                     <option value="forest-green" style="background: #0d1f14; color: #ffffff;">Forest</option>
                     <option value="deep-red" style="background: #2a0808; color: #ffffff;">Deep Red</option>
                     <option value="purple-haze" style="background: #1a0b2e; color: #ffffff;">Purple</option>
-                    <option value="custom" style="background: var(--bg-base); color: var(--text-pure);">Custom...
-                    </option>
+                    <option value="rgb-spectrum" style="background: #111115; color: #ff0055;">RGB Spectrum (Live)</option>
+                    <option value="custom" style="background: var(--bg-base); color: var(--text-pure);">Custom...</option>
                 </select>
                 <div id="custom-theme-controls"
                     style="display: none; position: absolute; top: 120%; right: 0; padding: 1rem; background: var(--card-surface); border: 1px solid var(--card-border); border-radius: 12px; flex-direction: column; gap: 0.8rem; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 100; min-width: 220px;">
@@ -139,6 +155,20 @@
                         </button>
                     </div>
                 </div>
+            </div>
+
+            <div id="live-stats-pill" title="Live site stats" style="display:flex;align-items:center;gap:0.65rem;background:rgba(255,255,255,0.04);border:1px solid var(--card-border);border-radius:999px;padding:0.35rem 0.85rem;font-size:0.75rem;font-weight:600;color:var(--text-secondary);white-space:nowrap;transition:opacity 0.3s;">
+                <span style="display:flex;align-items:center;gap:0.3rem;" title="Active users on site">
+                    <i class="fa-solid fa-circle" style="font-size:0.45rem;color:var(--accent-emerald);animation:pulse-dot 2s ease-in-out infinite;"></i>
+                    <span id="live-stat-users">—</span>
+                    <span style="color:var(--text-muted);">online</span>
+                </span>
+                <span style="width:1px;height:12px;background:var(--card-border);"></span>
+                <span style="display:flex;align-items:center;gap:0.3rem;" title="Active hosted links">
+                    <i class="fa-solid fa-link" style="font-size:0.65rem;color:var(--accent-emerald);"></i>
+                    <span id="live-stat-links">—</span>
+                    <span style="color:var(--text-muted);">links</span>
+                </span>
             </div>
 
             <!-- TODO: Add streak badge here in a future update when they give a damn -->

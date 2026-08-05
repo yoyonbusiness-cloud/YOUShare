@@ -16,6 +16,8 @@ const ABANDONED_UPLOAD_TTL_MS = 30 * 60 * 1000;
 function startServer(port = 3000) {
     const DROPS_DIR = path.join(os.tmpdir(), 'drops');
     if (!fs.existsSync(DROPS_DIR)) fs.mkdirSync(DROPS_DIR, { recursive: true });
+    const FOREVER_FILES_DIR = path.join(os.tmpdir(), 'forever_files');
+    if (!fs.existsSync(FOREVER_FILES_DIR)) fs.mkdirSync(FOREVER_FILES_DIR, { recursive: true });
     const DROP_TTL_MS = 60 * 60 * 1000;
     const dropMeta = new Map();
     const uploadSessions = new Map();
@@ -130,7 +132,33 @@ function startServer(port = 3000) {
         }
     }
 
+    function hydrateForeverDrops() {
+        if (!fs.existsSync(FOREVER_FILES_DIR)) return;
+        try {
+            const entries = fs.readdirSync(FOREVER_FILES_DIR);
+            for (const entry of entries) {
+                const entryPath = path.join(FOREVER_FILES_DIR, entry);
+                let stat;
+                try { stat = fs.lstatSync(entryPath); } catch { continue; }
+                if (stat.isDirectory()) {
+                    const manifest = readJsonFile(path.join(entryPath, 'manifest.json'));
+                    if (manifest) {
+                        dropMeta.set(entry, { ...manifest, mode: 'chunked', expires: null });
+                    }
+                } else if (stat.isFile() && !entry.endsWith('.meta.json')) {
+                    const legacyMetaPath = path.join(FOREVER_FILES_DIR, `${entry}.meta.json`);
+                    const legacyMeta = readJsonFile(legacyMetaPath);
+                    if (legacyMeta) {
+                        dropMeta.set(entry, { ...legacyMeta, mode: 'legacy', expires: null });
+                    }
+                }
+            }
+        } catch (e) {
+        }
+    }
+
     hydrateHostedDropsFromDisk();
+    hydrateForeverDrops();
 
     setInterval(() => {
         const now = Date.now();
@@ -262,6 +290,8 @@ function startServer(port = 3000) {
         filesTransferred: 0
     };
 
+    app.use(express.json({ limit: '10mb' }));
+    app.use(express.urlencoded({ extended: true, limit: '10mb' }));
     app.use(express.static(__dirname));
 
     app.post('/upload', upload.single('file'), (req, res) => {
@@ -415,6 +445,7 @@ function startServer(port = 3000) {
 
         dropMeta.set(token, { ...manifest });
         uploadSessions.delete(token);
+        broadcastLiveStats();
 
         res.json({ ok: true, token, expires });
     });
@@ -433,6 +464,7 @@ function startServer(port = 3000) {
         cleanupDropOnDisk(token);
 
         io.to(`drop:${token}`).emit('drop-cancelled', token);
+        broadcastLiveStats();
         res.json({ ok: true });
     });
 
@@ -473,13 +505,16 @@ function startServer(port = 3000) {
     app.get('/download-chunk/:token/:index', (req, res) => {
         const meta = dropMeta.get(req.params.token);
         if (!meta) return res.status(404).send(`Drop token not found: ${req.params.token}`);
-        if (Date.now() > meta.expires) return res.status(410).send(`Drop expired: ${req.params.token}`);
+        if (meta.expires && Date.now() > meta.expires) return res.status(410).send(`Drop expired: ${req.params.token}`);
         if (meta.mode !== 'chunked') return res.status(400).send('Not a chunked drop');
 
         const index = safeParseInt(req.params.index);
         if (index === null || index < 0 || index >= meta.chunkCount) return res.status(400).send(`Chunk index out of range: ${req.params.index}`);
 
-        const partPath = path.join(DROPS_DIR, req.params.token, 'parts', String(index));
+        let partPath = path.join(DROPS_DIR, req.params.token, 'parts', String(index));
+        if (!fs.existsSync(partPath)) {
+            partPath = path.join(FOREVER_FILES_DIR, req.params.token, 'parts', String(index));
+        }
         if (!fs.existsSync(partPath)) return res.status(404).send(`Chunk file missing: ${partPath}`);
 
         const stat = fs.statSync(partPath);
@@ -490,15 +525,24 @@ function startServer(port = 3000) {
 
     app.get('/download/:token', (req, res) => {
         const meta = dropMeta.get(req.params.token);
-        if (!meta || Date.now() > meta.expires) return res.status(404).send('Drop expired or not found');
+        if (!meta || (meta.expires && Date.now() > meta.expires)) return res.status(404).send('Drop expired or not found');
         if (meta.mode === 'chunked') return res.status(400).send('Chunked drop: use /download-chunk');
-        const fpath = path.join(DROPS_DIR, req.params.token);
+        let fpath = path.join(DROPS_DIR, req.params.token);
+        if (!fs.existsSync(fpath)) {
+            fpath = path.join(FOREVER_FILES_DIR, req.params.token);
+        }
         if (!fs.existsSync(fpath)) return res.status(404).send('File missing');
         res.setHeader('Content-Type', 'application/octet-stream');
         res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(meta.filename)}.enc"`);
         res.setHeader('Content-Length', meta.size);
         fs.createReadStream(fpath).pipe(res);
     });
+
+    function broadcastLiveStats() {
+        const connectedUsers = io.sockets.sockets.size;
+        const activeHostedLinks = dropMeta.size;
+        io.emit('live-stats-updated', { connectedUsers, activeHostedLinks });
+    }
 
     io.on('connection', (socket) => {
         socket.on('join-drop-room', (token) => {
@@ -510,6 +554,8 @@ function startServer(port = 3000) {
         });
 
         socket.emit('global-stats-updated', globalStats);
+        socket.emit('live-stats-updated', { connectedUsers: io.sockets.sockets.size, activeHostedLinks: dropMeta.size });
+        broadcastLiveStats();
 
         const initPublicList = [];
         for (const [, r] of activeRooms.entries()) {
@@ -1094,7 +1140,31 @@ function startServer(port = 3000) {
                     }
                 }
             }
+            broadcastLiveStats();
         });
+    });
+
+    function makeForever(fileToken) {
+        const srcPath = path.join(DROPS_DIR, fileToken);
+        const destPath = path.join(FOREVER_FILES_DIR, fileToken);
+        if (fs.existsSync(srcPath)) {
+            fs.cpSync(srcPath, destPath, { recursive: true });
+            try {
+                const stat = fs.lstatSync(srcPath);
+                if (stat.isDirectory()) fs.rmSync(srcPath, { recursive: true, force: true });
+                else fs.unlinkSync(srcPath);
+            } catch (e) {}
+        }
+        const srcMeta = getLegacyMetaPath(fileToken);
+        const destMeta = path.join(FOREVER_FILES_DIR, `${fileToken}.meta.json`);
+        if (fs.existsSync(srcMeta)) {
+            fs.cpSync(srcMeta, destMeta);
+            try { fs.unlinkSync(srcMeta); } catch (e) {}
+        }
+    }
+
+    app.get('/@:username', (req, res) => {
+        res.status(404).send('Not found');
     });
 
     app.get('/drop.html', (req, res) => {

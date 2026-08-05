@@ -65,6 +65,14 @@ socket.on('public-rooms-list', (rooms) => {
     }
 });
 
+socket.on('live-stats-updated', (stats) => {
+    if (!stats) return;
+    const usersEl = document.getElementById('live-stat-users');
+    const linksEl = document.getElementById('live-stat-links');
+    if (usersEl) usersEl.textContent = stats.connectedUsers !== undefined ? stats.connectedUsers : '—';
+    if (linksEl) linksEl.textContent = stats.activeHostedLinks !== undefined ? stats.activeHostedLinks : '—';
+});
+
 socket.on('connect', () => {
     window.isShadowTab = false;
     window.primarySocketId = null;
@@ -4447,5 +4455,3 @@ function setupTabDataChannel(tabId, dc, targetId) {
     };
 }
 
-    };
-}

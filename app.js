@@ -798,6 +798,65 @@ async function startHostedUpload(files) {
         localStorage.setItem('emit-active-hosted-state', 'finished');
         localStorage.setItem('emit-active-hosted-url', resultData.url);
         setHostedModalCopyHandlers(resultData.url);
+
+        const myProfile = (() => { try { return JSON.parse(localStorage.getItem('emit-my-profile') || 'null'); } catch { return null; } })();
+        if (myProfile && myProfile.username && myProfile.token && result) {
+            const existingShareRow = result.querySelector('.profile-share-row');
+            if (!existingShareRow) {
+                const shareRow = document.createElement('div');
+                shareRow.className = 'profile-share-row';
+                shareRow.style.cssText = 'margin-top:1rem; display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;';
+                const foreverLabel = myProfile.isAllowedForever
+                    ? `<label style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;color:var(--text-secondary);cursor:pointer;">
+                        <input type="checkbox" id="share-forever-check"> <i class="fa-solid fa-infinity" style="color:var(--accent-emerald);"></i> Keep Forever
+                       </label>`
+                    : '';
+                shareRow.innerHTML = `
+                    ${foreverLabel}
+                    <button id="share-to-profile-btn" style="display:inline-flex;align-items:center;gap:0.4rem;background:var(--btn-ghost-bg);border:1px solid var(--btn-ghost-border);color:var(--text-secondary);font-weight:700;font-size:0.8rem;border-radius:999px;padding:0.45rem 1rem;cursor:pointer;transition:all 0.15s;">
+                        <i class="fa-solid fa-user-plus"></i> Add to @${myProfile.username}
+                    </button>
+                `;
+                result.appendChild(shareRow);
+
+                const shareBtn = shareRow.querySelector('#share-to-profile-btn');
+                shareBtn.addEventListener('click', async () => {
+                    shareBtn.disabled = true;
+                    shareBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Adding...';
+                    const isForever = shareRow.querySelector('#share-forever-check')?.checked || false;
+                    const urlParams = new URLSearchParams(resultData.url.split('?')[1] || '');
+                    const fileToken = urlParams.get('t') || resultData.token;
+                    try {
+                        const res = await fetch('/api/profiles/add-upload', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                username: myProfile.username,
+                                token: myProfile.token,
+                                fileToken,
+                                filename: files?.[0]?.name || 'file',
+                                size: files?.[0]?.size || 0,
+                                mode: 'chunked',
+                                keyB64: resultData.keyB64 || '',
+                                isCollection: prepared?.isCollection || false,
+                                isForever
+                            })
+                        });
+                        const data = await res.json();
+                        if (!data.ok) throw new Error(data.error || 'Failed');
+                        shareBtn.innerHTML = '<i class="fa-solid fa-check"></i> Added to Profile!';
+                        shareBtn.style.color = 'var(--accent-emerald)';
+                        shareBtn.style.borderColor = 'var(--accent-emerald)';
+                        showToast('Added to Profile', `Visible at /@${myProfile.username}`, 'success');
+                    } catch (e) {
+                        shareBtn.disabled = false;
+                        shareBtn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Add to Profile';
+                        showToast('Error', e.message, 'error');
+                    }
+                });
+            }
+        }
+
         const closeHandler = () => closeHostedModal({ reset: true, clearActiveState: true });
         if (waitBtn) {
             waitBtn.disabled = false;
@@ -1740,6 +1799,17 @@ if (themeSelect) {
         document.documentElement.setAttribute('data-theme', newTheme);
         localStorage.setItem('emit-theme', newTheme);
 
+        if (window._rgbInterval) {
+            clearInterval(window._rgbInterval);
+            window._rgbInterval = null;
+        }
+
+        if (newTheme === 'rgb-spectrum') {
+            if (typeof window.startRgbSpectrumEngine === 'function') {
+                window.startRgbSpectrumEngine();
+            }
+        }
+
         if (newTheme === 'custom') {
             customThemeControls.style.display = 'flex';
             updateCustomTheme();
@@ -1758,7 +1828,9 @@ if (themeSelect) {
                 '--accent-emerald', '--btn-white-bg', '--btn-ghost-bg', '--btn-ghost-border', '--btn-ghost-hover',
                 '--text-pure', '--text-primary', '--text-secondary', '--btn-white-text'
             ];
-            propsToRemove.forEach(prop => document.documentElement.style.removeProperty(prop));
+            if (newTheme !== 'rgb-spectrum') {
+                propsToRemove.forEach(prop => document.documentElement.style.removeProperty(prop));
+            }
         }
     });
 }
