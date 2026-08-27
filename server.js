@@ -754,6 +754,35 @@ function startServer(port = 3000) {
         io.emit('live-stats-updated', { connectedUsers, activeHostedLinks });
     }
 
+    function getSocketClientIp(socket) {
+        const headers = socket.handshake.headers || {};
+        let rawIp = headers['x-arr-clientip'] ||
+                    headers['cf-connecting-ip'] ||
+                    headers['true-client-ip'] ||
+                    headers['x-client-ip'] ||
+                    (headers['x-forwarded-for'] ? headers['x-forwarded-for'].split(',')[0].trim() : '') ||
+                    socket.handshake.address ||
+                    'unknown';
+
+        if (!rawIp || rawIp === 'unknown') return 'unknown';
+
+        if (rawIp.startsWith('::ffff:')) {
+            rawIp = rawIp.replace(/^::ffff:/, '');
+        }
+
+        const ipv4Match = rawIp.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(:\d+)?$/);
+        if (ipv4Match) {
+            return ipv4Match[1];
+        }
+
+        const ipv6Bracketed = rawIp.match(/^\[([a-fA-F0-9:]+)\](:\d+)?$/);
+        if (ipv6Bracketed) {
+            return ipv6Bracketed[1];
+        }
+
+        return rawIp;
+    }
+
     io.on('connection', (socket) => {
         socket.on('join-drop-room', (token) => {
             socket.join(`drop:${token}`);
@@ -782,8 +811,15 @@ function startServer(port = 3000) {
         socket.emit('public-rooms-list', initPublicList);
 
         socket.on('nearby-announce', (info) => {
-            const clientIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim() || socket.handshake.address || 'unknown';
+            const clientIp = getSocketClientIp(socket);
             const networkGroup = `nearby:${clientIp}`;
+            const wasInGroup = socket.nearbyNetworkGroup === networkGroup;
+
+            if (socket.nearbyNetworkGroup && socket.nearbyNetworkGroup !== networkGroup) {
+                socket.to(socket.nearbyNetworkGroup).emit('nearby-peer-left', socket.id);
+                socket.leave(socket.nearbyNetworkGroup);
+            }
+
             socket.nearbyNetworkGroup = networkGroup;
             socket.nearbyInfo = {
                 id: socket.id,
@@ -803,7 +839,9 @@ function startServer(port = 3000) {
                 }
             }
             socket.emit('nearby-peers-list', peers);
-            socket.to(networkGroup).emit('nearby-peer-joined', socket.nearbyInfo);
+            if (!wasInGroup) {
+                socket.to(networkGroup).emit('nearby-peer-joined', socket.nearbyInfo);
+            }
         });
 
         socket.on('nearby-leave', () => {

@@ -510,6 +510,8 @@ function startNearbyTransferWithMode(peerId, mode) {
         picker.click();
     }
 }
+window.startNearbyTransferWithMode = startNearbyTransferWithMode;
+window.announceNearbyPresence = announceNearbyPresence;
 
 function initNearbyDiscoveryClient() {
     if (typeof socket === 'undefined') return;
