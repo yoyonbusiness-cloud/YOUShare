@@ -1,17 +1,19 @@
-# Emit
+# YOUShare (Emit)
 
-**Private, peer-to-peer file sharing. No servers, no accounts, no trackers.**
+**Private, peer-to-peer file sharing. No intermediate servers, no accounts, zero-knowledge encryption.**
 
 ---
 
 ## Features
 
-- **P2P Transfer** — Direct device-to-device file sharing using WebRTC. 
-- **End-to-End Encryption** — All transfers are protected with AES-GCM encryption.
-- **Fast** — High-performance data channel logic for large file transfers.
-- **Folder Support** — Send entire folders instantly (recursively zipped).
-- **Hosted Drop** — Option to generate encrypted download links for offline sharing.
-- **Responsive** — Minimalist, dark-themed UI that works on mobile and desktop.
+- **P2P Transfer** — Direct device-to-device file transfer powered by WebRTC DataChannels.
+- **Direct-to-Disk Saving** — Streams large files (500MB–50GB+) straight to the hard drive in real time via File System Access API with minimal RAM usage.
+- **End-to-End Encryption** — Client-side AES-GCM + ECDH/HKDF zero-knowledge encryption.
+- **Local Nearby Drop** — Instant discovery and transfer between devices on the same Wi-Fi network without manual room codes.
+- **Chunked Resume** — Interrupted transfers automatically resume from the last saved chunk instead of restarting.
+- **Folder Support** — Recursively bundle and send entire folder structures.
+- **Hosted Drop** — Generate encrypted temporary download links for asynchronous or offline sharing.
+- **Themes & Customization** — Multiple curated themes (including dark, light, midnight, lo-fi), custom color picker, and real-time audio visualizers.
 
 ---
 
@@ -20,34 +22,35 @@
 **Requirements:** Node.js 18+
 
 ```bash
-git clone https://github.com/yoyonbusiness-cloud/emit.git
-cd emit
+git clone https://github.com/yoyonbusiness-cloud/YOUShare.git
+cd YOUShare
 npm install
-node server.js
+npm start
 ```
 
-Then open `http://localhost:3000` on two devices on the same network, or expose via a tunnel (e.g. ngrok, Cloudflare Tunnel) for cross-network transfers.
+Then open `http://localhost:3000` in your browser. Open it on two devices on the same Wi-Fi network, or expose via a tunnel (e.g. Cloudflare Tunnel, ngrok) for cross-network peer-to-peer transfers.
 
 ---
 
 ## How It Works
 
-1. **Create a Vault** — One device generates a workspace code.
-2. **Join** — The other device enters the code (and optional secret word for E2E encryption).
-3. **Drop Files** — Drag files or folders, press browse, or paste from clipboard.
-4. **Save** — The receiver taps the **Save** button when the transfer completes.
+1. **Create a Vault** — One device initializes an ephemeral workspace room.
+2. **Join** — The receiving device connects with the room code (and optional security passphrase).
+3. **Drop Files** — Drag-and-drop files or folders, select via file picker, or paste directly with `Ctrl+V`.
+4. **Save** — Direct-to-Disk streams incoming chunks straight to the receiver's drive.
 
-Workspaces are ephemeral. When both users leave or the room is destroyed, all keys are wiped.
+Workspaces are completely ephemeral. When participants disconnect or the room is destroyed, all session state and keys are wiped.
 
 ---
 
-## Stack
+## Tech Stack
 
 | Layer | Technology |
 |---|---|
 | Transport | WebRTC DataChannels |
 | Signaling | Socket.IO |
 | Encryption | Web Crypto API (ECDH + HKDF + AES-GCM) |
+| Streaming | Streams API & File System Access API |
 | Compression | JSZip (folder bundling) |
 | Server | Node.js + Express |
 
