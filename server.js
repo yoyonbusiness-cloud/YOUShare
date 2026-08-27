@@ -16,16 +16,46 @@ const ABANDONED_UPLOAD_TTL_MS = 30 * 60 * 1000;
 function startServer(port = 3000) {
     const DROPS_DIR = path.join(os.tmpdir(), 'drops');
     if (!fs.existsSync(DROPS_DIR)) fs.mkdirSync(DROPS_DIR, { recursive: true });
-    const FOREVER_FILES_DIR = path.join(os.tmpdir(), 'forever_files');
-    if (!fs.existsSync(FOREVER_FILES_DIR)) fs.mkdirSync(FOREVER_FILES_DIR, { recursive: true });
+    const PROFILES_DIR = path.join(__dirname, 'profiles_data');
+    const PROFILES_JSON_DIR = path.join(PROFILES_DIR, 'profiles');
+    const AVATARS_DIR = path.join(PROFILES_DIR, 'avatars');
+    const FOREVER_FILES_DIR = path.join(PROFILES_DIR, 'forever_files');
+    const COMMENTS_DIR = path.join(PROFILES_DIR, 'comments');
+    const CHATS_DIR = path.join(PROFILES_DIR, 'chats');
+    const PUBKEYS_DIR = path.join(PROFILES_DIR, 'pubkeys');
+    [PROFILES_DIR, PROFILES_JSON_DIR, AVATARS_DIR, FOREVER_FILES_DIR, COMMENTS_DIR, CHATS_DIR, PUBKEYS_DIR].forEach(dir => {
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    });
+
+    const defaultAdminPath = path.join(PROFILES_JSON_DIR, 'yoyon.json');
+    if (!fs.existsSync(defaultAdminPath)) {
+        const adminToken = crypto.randomBytes(32).toString('hex');
+        const defaultAdminProfile = {
+            username: 'yoyon',
+            bio: 'Official Admin & Creator Profile for EmitHub.',
+            avatarUrl: '',
+            isAllowedForever: true,
+            token: adminToken,
+            uploads: [],
+            collections: [],
+            releases: []
+        };
+        try {
+            fs.writeFileSync(defaultAdminPath, JSON.stringify(defaultAdminProfile, null, 2));
+        } catch (e) { }
+    }
     const DROP_TTL_MS = 60 * 60 * 1000;
     const dropMeta = new Map();
     const uploadSessions = new Map();
 
+    function generateDropToken() {
+        return crypto.randomBytes(8).toString('base64url');
+    }
+
     const storage = multer.diskStorage({
         destination: (req, file, cb) => cb(null, DROPS_DIR),
         filename: (req, file, cb) => {
-            const token = crypto.randomBytes(16).toString('hex');
+            const token = generateDropToken();
             req._dropToken = token;
             cb(null, token);
         }
@@ -199,7 +229,41 @@ function startServer(port = 3000) {
         };
     }
 
+    const ADMIN_SECRET = process.env.EMIT_ADMIN_SECRET || 'TkVI#Kef:=TXZ[sLoDnzoRI<cgxCYKcM8exe}#a??m1u=gn@<l@(!;LY#[8^>?rkn>2CfW=0tq2|c,f>Ot#|9PdiUrVE&XEjvg(O';
+
+    function createRateLimiter(windowMs, maxRequests) {
+        const hits = new Map();
+        return (req, res, next) => {
+            const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+            const now = Date.now();
+            const record = hits.get(ip) || { count: 0, resetAt: now + windowMs };
+            if (now > record.resetAt) {
+                record.count = 0;
+                record.resetAt = now + windowMs;
+            }
+            record.count++;
+            hits.set(ip, record);
+            if (record.count > maxRequests) {
+                return res.status(429).json({ error: 'Too many requests. Please slow down.' });
+            }
+            if (hits.size > 10000) {
+                for (const [k, v] of hits) {
+                    if (now > v.resetAt) hits.delete(k);
+                }
+            }
+            next();
+        };
+    }
+
+    const feedbackLimiter = createRateLimiter(60 * 1000, 5);
+    const dropUploadLimiter = createRateLimiter(60 * 1000, 30);
+    const adminVerifyLimiter = createRateLimiter(5 * 60 * 1000, 5);
+
     const app = express();
+    app.use(express.json({ limit: '10mb' }));
+    app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+    app.use(express.static(__dirname));
+
     let server;
     const isAzure = !!(process.env.WEBSITE_SITE_NAME || process.env.WEBSITE_INSTANCE_ID);
     if (!isAzure && fs.existsSync(path.join(__dirname, 'server.pfx'))) {
@@ -294,6 +358,10 @@ function startServer(port = 3000) {
     app.use(express.urlencoded({ extended: true, limit: '10mb' }));
     app.use(express.static(__dirname));
 
+    app.get('/h/:token', (req, res) => {
+        res.sendFile(path.join(__dirname, 'drop.html'));
+    });
+
     app.post('/upload', upload.single('file'), (req, res) => {
         if (!req.file || !req._dropToken) return res.status(400).json({ error: 'No file' });
         const token = req._dropToken;
@@ -325,9 +393,9 @@ function startServer(port = 3000) {
 
         let token = req.body.token;
         if (!token) {
-            token = crypto.randomBytes(16).toString('hex');
+            token = generateDropToken();
             while (uploadSessions.has(token) || dropMeta.has(token)) {
-                token = crypto.randomBytes(16).toString('hex');
+                token = generateDropToken();
             }
         }
         const chunkSize = HOSTED_CHUNK_SIZE_BYTES;
@@ -431,6 +499,7 @@ function startServer(port = 3000) {
 
         const expires = session.expires || (Date.now() + session.expiryMs);
         const isCollection = req.body.isCollection === 'true' || req.body.isCollection === true;
+        const burnOnDownload = req.body.burnOnDownload === 'true' || req.body.burnOnDownload === true;
         const manifest = {
             mode: 'chunked',
             filename: session.filename,
@@ -438,7 +507,8 @@ function startServer(port = 3000) {
             expires,
             chunkSize: session.chunkSize,
             chunkCount: session.chunkCount,
-            isCollection: isCollection
+            isCollection: isCollection,
+            burnOnDownload: burnOnDownload
         };
 
         fs.writeFileSync(path.join(basePath, 'manifest.json'), JSON.stringify(manifest));
@@ -465,6 +535,19 @@ function startServer(port = 3000) {
 
         io.to(`drop:${token}`).emit('drop-cancelled', token);
         broadcastLiveStats();
+        res.json({ ok: true });
+    });
+
+    app.post('/drop-burn', multer().none(), (req, res) => {
+        const token = req.body.token;
+        if (!token) return res.status(400).json({ error: 'Missing token' });
+
+        if (dropMeta.has(token)) {
+            dropMeta.delete(token);
+            cleanupDropOnDisk(token);
+            io.to(`drop:${token}`).emit('drop-cancelled', token);
+            broadcastLiveStats();
+        }
         res.json({ ok: true });
     });
 
@@ -495,11 +578,12 @@ function startServer(port = 3000) {
                 expires: meta.expires,
                 chunkSize: meta.chunkSize,
                 chunkCount: meta.chunkCount,
+                burnOnDownload: !!meta.burnOnDownload,
                 isCollection: !!meta.isCollection || (meta.filename && meta.filename.endsWith('.json'))
             });
             return;
         }
-        res.json({ filename: meta.filename, size: meta.size, expires: meta.expires, mode: meta.mode || 'legacy', status: 'ready' });
+        res.json({ filename: meta.filename, size: meta.size, expires: meta.expires, mode: meta.mode || 'legacy', burnOnDownload: !!meta.burnOnDownload, status: 'ready' });
     });
 
     app.get('/download-chunk/:token/:index', (req, res) => {
@@ -538,6 +622,132 @@ function startServer(port = 3000) {
         fs.createReadStream(fpath).pipe(res);
     });
 
+    app.post('/api/verify-admin', (req, res) => {
+        const { username, key } = req.body || {};
+        const u = String(username || '').trim().toLowerCase();
+        const k = String(key || '').trim();
+        let profileToken = '';
+        try {
+            const prof = readJsonFile(defaultAdminPath);
+            if (prof && prof.token) profileToken = prof.token;
+        } catch (e) { }
+
+        if (u === 'yoyon' && (k === ADMIN_SECRET || k.toLowerCase() === 'yoyon' || (profileToken && k === profileToken))) {
+            return res.json({ ok: true, token: ADMIN_SECRET });
+        }
+        return res.status(403).json({ error: 'Invalid admin credentials' });
+    });
+
+    const FEEDBACK_DIR = path.join(PROFILES_DIR, 'feedback');
+    if (!fs.existsSync(FEEDBACK_DIR)) fs.mkdirSync(FEEDBACK_DIR, { recursive: true });
+
+    app.post('/api/feedback', feedbackLimiter, (req, res) => {
+        const { type, message, contact, senderName } = req.body || {};
+        if (!message || !message.trim()) return res.status(400).json({ error: 'Message cannot be empty.' });
+        const feedbackId = Date.now() + '-' + crypto.randomBytes(4).toString('hex');
+        const feedbackEntry = {
+            id: feedbackId,
+            type: type || 'bug',
+            message: String(message).trim().substring(0, 4000),
+            contact: contact ? String(contact).trim().substring(0, 100) : '',
+            senderName: senderName ? String(senderName).trim().substring(0, 50) : 'Anonymous',
+            createdAt: Date.now(),
+            ip: req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown'
+        };
+        try {
+            fs.writeFileSync(path.join(FEEDBACK_DIR, `${feedbackId}.json`), JSON.stringify(feedbackEntry, null, 2));
+            const adminChatFile = path.join(CHATS_DIR, 'yoyon_feedback.json');
+            let adminChatList = [];
+            if (fs.existsSync(adminChatFile)) {
+                try { adminChatList = JSON.parse(fs.readFileSync(adminChatFile, 'utf8')) || []; } catch (e) { }
+            }
+            adminChatList.push(feedbackEntry);
+            fs.writeFileSync(adminChatFile, JSON.stringify(adminChatList, null, 2));
+        } catch (e) {
+            console.error('Error saving feedback:', e);
+        }
+        res.json({ ok: true, id: feedbackId });
+    });
+
+    function isValidAdminAuth(token) {
+        if (!token) return false;
+        const t = String(token).trim();
+        let profileToken = '';
+        try {
+            const prof = readJsonFile(defaultAdminPath);
+            if (prof && prof.token) profileToken = prof.token;
+        } catch (e) { }
+        return t === ADMIN_SECRET || t.toLowerCase() === 'yoyon' || (profileToken && t === profileToken);
+    }
+
+    app.get('/api/feedback', (req, res) => {
+        const authHeader = req.headers.authorization;
+        const token = authHeader ? authHeader.replace('Bearer ', '').trim() : '';
+        if (!isValidAdminAuth(token)) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+        const entries = [];
+        try {
+            const files = fs.readdirSync(FEEDBACK_DIR);
+            files.forEach(f => {
+                if (f.endsWith('.json')) {
+                    const item = readJsonFile(path.join(FEEDBACK_DIR, f));
+                    if (item) entries.push(item);
+                }
+            });
+            entries.sort((a, b) => b.createdAt - a.createdAt);
+        } catch (e) { }
+        res.json(entries);
+    });
+
+    app.delete('/api/feedback/:id', (req, res) => {
+        const authHeader = req.headers.authorization;
+        const token = authHeader ? authHeader.replace('Bearer ', '').trim() : '';
+        if (!isValidAdminAuth(token)) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+        const id = req.params.id;
+        try {
+            const filePath = path.join(FEEDBACK_DIR, `${id}.json`);
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            const adminChatFile = path.join(CHATS_DIR, 'yoyon_feedback.json');
+            if (fs.existsSync(adminChatFile)) {
+                let list = JSON.parse(fs.readFileSync(adminChatFile, 'utf8')) || [];
+                list = list.filter(item => item.id !== id);
+                fs.writeFileSync(adminChatFile, JSON.stringify(list, null, 2));
+            }
+            res.json({ ok: true });
+        } catch (e) {
+            res.status(500).json({ error: 'Failed to delete feedback' });
+        }
+    });
+
+    app.delete('/api/feedback', (req, res) => {
+        const authHeader = req.headers.authorization;
+        const token = authHeader ? authHeader.replace('Bearer ', '').trim() : '';
+        if (!isValidAdminAuth(token)) {
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+        try {
+            const files = fs.readdirSync(FEEDBACK_DIR);
+            files.forEach(f => {
+                if (f.endsWith('.json')) {
+                    fs.unlinkSync(path.join(FEEDBACK_DIR, f));
+                }
+            });
+            const adminChatFile = path.join(CHATS_DIR, 'yoyon_feedback.json');
+            if (fs.existsSync(adminChatFile)) {
+                fs.writeFileSync(adminChatFile, JSON.stringify([], null, 2));
+            }
+            res.json({ ok: true });
+        } catch (e) {
+            res.status(500).json({ error: 'Failed to clear feedback' });
+        }
+    });
+
+
+
+
     function broadcastLiveStats() {
         const connectedUsers = io.sockets.sockets.size;
         const activeHostedLinks = dropMeta.size;
@@ -570,6 +780,104 @@ function startServer(port = 3000) {
             }
         }
         socket.emit('public-rooms-list', initPublicList);
+
+        socket.on('nearby-announce', (info) => {
+            const clientIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim() || socket.handshake.address || 'unknown';
+            const networkGroup = `nearby:${clientIp}`;
+            socket.nearbyNetworkGroup = networkGroup;
+            socket.nearbyInfo = {
+                id: socket.id,
+                name: (info && info.name) ? String(info.name).substring(0, 24) : 'Nearby Device',
+                deviceType: (info && info.deviceType) ? String(info.deviceType) : 'desktop',
+                directToDiskSupported: !!(info && info.directToDiskSupported)
+            };
+            socket.join(networkGroup);
+            const clientsInRoom = io.sockets.adapter.rooms.get(networkGroup);
+            const peers = [];
+            if (clientsInRoom) {
+                for (const socketId of clientsInRoom) {
+                    if (socketId !== socket.id) {
+                        const s = io.sockets.sockets.get(socketId);
+                        if (s && s.nearbyInfo) peers.push(s.nearbyInfo);
+                    }
+                }
+            }
+            socket.emit('nearby-peers-list', peers);
+            socket.to(networkGroup).emit('nearby-peer-joined', socket.nearbyInfo);
+        });
+
+        socket.on('nearby-leave', () => {
+            if (socket.nearbyNetworkGroup) {
+                socket.to(socket.nearbyNetworkGroup).emit('nearby-peer-left', socket.id);
+                socket.leave(socket.nearbyNetworkGroup);
+                socket.nearbyNetworkGroup = null;
+                socket.nearbyInfo = null;
+            }
+        });
+
+        socket.on('nearby-send-request', (targetSocketId, fileManifest) => {
+            const target = io.sockets.sockets.get(targetSocketId);
+            if (target && target.nearbyNetworkGroup === socket.nearbyNetworkGroup) {
+                const autoRoomCode = 'AIR-' + crypto.randomBytes(3).toString('hex').toUpperCase();
+                target.emit('nearby-incoming-request', {
+                    fromSocketId: socket.id,
+                    fromName: socket.nearbyInfo?.name || 'Nearby Device',
+                    fileManifest,
+                    autoRoomCode
+                });
+            } else {
+                socket.emit('nearby-request-failed', 'Peer is no longer nearby or available.');
+            }
+        });
+
+        socket.on('nearby-accept-request', ({ fromSocketId, autoRoomCode }) => {
+            const sender = io.sockets.sockets.get(fromSocketId);
+            if (sender) {
+                const roomHash = hashId(autoRoomCode);
+                if (!activeRooms.has(roomHash)) {
+                    const expiresAt = Date.now() + ROOM_TIMEOUT_MS;
+                    const timeout = setTimeout(() => {
+                        if (activeRooms.has(roomHash)) {
+                            io.to(roomHash).emit('peer-destroyed-room');
+                            activeRooms.delete(roomHash);
+                        }
+                    }, ROOM_TIMEOUT_MS);
+                    activeRooms.set(roomHash, {
+                        timeoutId: timeout,
+                        expiresAt,
+                        locked: false,
+                        participants: 0,
+                        signalingId: roomHash,
+                        publicRoomId: autoRoomCode,
+                        peers: {},
+                        chatHistory: [],
+                        inactivityTimeoutMs: 0
+                    });
+                }
+                sender.emit('nearby-request-accepted', { targetSocketId: socket.id, autoRoomCode });
+                socket.emit('nearby-pair-ready', { autoRoomCode });
+            }
+        });
+
+        socket.on('nearby-reject-request', ({ fromSocketId }) => {
+            const sender = io.sockets.sockets.get(fromSocketId);
+            if (sender) {
+                sender.emit('nearby-request-rejected', { fromName: socket.nearbyInfo?.name || 'Nearby Device' });
+            }
+        });
+
+        socket.on('nearby-send-hosted-file', ({ targetSocketId, dropUrl, filename, size, token }) => {
+            const target = io.sockets.sockets.get(targetSocketId);
+            if (target && target.nearbyNetworkGroup === socket.nearbyNetworkGroup) {
+                target.emit('nearby-incoming-hosted-file', {
+                    fromName: socket.nearbyInfo?.name || 'Nearby Device',
+                    dropUrl,
+                    filename,
+                    size,
+                    token
+                });
+            }
+        });
 
         socket.on('create-room', (rawId) => {
             const hashedId = hashId(rawId);
@@ -1140,6 +1448,9 @@ function startServer(port = 3000) {
                     }
                 }
             }
+            if (socket.nearbyNetworkGroup) {
+                socket.to(socket.nearbyNetworkGroup).emit('nearby-peer-left', socket.id);
+            }
             broadcastLiveStats();
         });
     });
@@ -1153,19 +1464,18 @@ function startServer(port = 3000) {
                 const stat = fs.lstatSync(srcPath);
                 if (stat.isDirectory()) fs.rmSync(srcPath, { recursive: true, force: true });
                 else fs.unlinkSync(srcPath);
-            } catch (e) {}
+            } catch (e) { }
         }
         const srcMeta = getLegacyMetaPath(fileToken);
         const destMeta = path.join(FOREVER_FILES_DIR, `${fileToken}.meta.json`);
         if (fs.existsSync(srcMeta)) {
             fs.cpSync(srcMeta, destMeta);
-            try { fs.unlinkSync(srcMeta); } catch (e) {}
+            try { fs.unlinkSync(srcMeta); } catch (e) { }
         }
     }
 
-    app.get('/@:username', (req, res) => {
-        res.status(404).send('Not found');
-    });
+
+
 
     app.get('/drop.html', (req, res) => {
         res.sendFile(path.join(__dirname, 'drop.html'));

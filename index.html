@@ -2,7 +2,8 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
+
+
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EmitHub - Secure Peer-to-Peer File Sharing</title>
     <meta name="description"
@@ -59,25 +60,99 @@
                     rootStyle.setProperty('--text-primary', adjustColor(savedCustom.text, -20));
                     rootStyle.setProperty('--text-secondary', adjustColor(savedCustom.text, -60));
                     rootStyle.setProperty('--btn-white-text', isDarkColor(savedCustom.primary) ? '#ffffff' : '#000000');
+                } catch (e) { }
+            }
             window.startRgbSpectrumEngine = function () {
                 if (window._rgbInterval) clearInterval(window._rgbInterval);
-                let hue = 0;
-                window._rgbInterval = setInterval(() => {
-                    hue = (hue + 2) % 360;
-                    const color = `hsl(${hue}, 90%, 55%)`;
-                    const bgGrad = `hsl(${hue}, 60%, 8%)`;
-                    const rootStyle = document.documentElement.style;
-                    rootStyle.setProperty('--accent-emerald', color);
-                    rootStyle.setProperty('--btn-white-bg', color);
-                    rootStyle.setProperty('--btn-ghost-border', `hsl(${hue}, 80%, 45%)`);
-                    rootStyle.setProperty('--btn-ghost-bg', `hsla(${hue}, 90%, 55%, 0.1)`);
-                    rootStyle.setProperty('--emerald-bg', `hsla(${hue}, 90%, 55%, 0.12)`);
-                    rootStyle.setProperty('--bg-grad-center', bgGrad);
-                }, 50);
+                let canvas = document.getElementById('rgb-liquid-canvas');
+                if (!canvas) {
+                    canvas = document.createElement('canvas');
+                    canvas.id = 'rgb-liquid-canvas';
+                    canvas.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:-1;display:none;opacity:0.85;';
+                    document.body.appendChild(canvas);
+                }
+                canvas.style.display = 'block';
+                let hue = 210;
+                let time = 0;
+
+
+                function drawLiquid() {
+                    if (!canvas) return;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) return;
+                    time += 0.03;
+                    hue = (hue + 0.5) % 360;
+
+                    if (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight) {
+                        canvas.width = window.innerWidth;
+                        canvas.height = window.innerHeight;
+                    }
+                    const w = canvas.width;
+                    const h = canvas.height;
+                    ctx.clearRect(0, 0, w, h);
+
+                    const cx1 = w * 0.5 + Math.sin(time * 0.8) * w * 0.25;
+                    const cy1 = h * 0.4 + Math.cos(time * 0.6) * h * 0.25;
+                    const r1 = Math.min(w, h) * 0.6;
+
+                    const grad1 = ctx.createRadialGradient(cx1, cy1, r1 * 0.05, cx1, cy1, r1);
+                    grad1.addColorStop(0, `hsla(${hue}, 100%, 55%, 0.45)`);
+                    grad1.addColorStop(0.5, `hsla(${(hue + 40) % 360}, 95%, 40%, 0.3)`);
+                    grad1.addColorStop(0.85, `hsla(${(hue + 80) % 360}, 90%, 15%, 0.15)`);
+                    grad1.addColorStop(1, 'transparent');
+
+                    ctx.fillStyle = grad1;
+                    ctx.fillRect(0, 0, w, h);
+
+                    const cx2 = w * 0.4 + Math.cos(time * 0.5) * w * 0.3;
+                    const cy2 = h * 0.65 + Math.sin(time * 0.7) * h * 0.3;
+                    const r2 = Math.min(w, h) * 0.7;
+
+                    const grad2 = ctx.createRadialGradient(cx2, cy2, r2 * 0.05, cx2, cy2, r2);
+                    grad2.addColorStop(0, `hsla(${(hue + 120) % 360}, 100%, 50%, 0.4)`);
+                    grad2.addColorStop(0.6, `hsla(${(hue + 180) % 360}, 90%, 25%, 0.2)`);
+                    grad2.addColorStop(1, 'transparent');
+
+                    ctx.fillStyle = grad2;
+                    ctx.fillRect(0, 0, w, h);
+                }
+
+
+                let lastCssUpdate = 0;
+                function tickRgb() {
+                    drawLiquid();
+                    const now = Date.now();
+                    if (now - lastCssUpdate > 100) {
+                        lastCssUpdate = now;
+                        const primaryColor = `hsl(${hue}, 100%, 60%)`;
+                        const secondaryColor = `hsl(${(hue + 60) % 360}, 100%, 60%)`;
+                        const bgGrad = `hsl(${hue}, 70%, 6%)`;
+                        const rootStyle = document.documentElement.style;
+                        rootStyle.setProperty('--accent-emerald', primaryColor);
+                        rootStyle.setProperty('--btn-white-bg', `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`);
+                        rootStyle.setProperty('--btn-white-text', '#000000');
+                        rootStyle.setProperty('--btn-ghost-border', `hsl(${hue}, 90%, 50%)`);
+                        rootStyle.setProperty('--btn-ghost-bg', `hsla(${hue}, 100%, 60%, 0.12)`);
+                        rootStyle.setProperty('--btn-ghost-hover', `hsla(${hue}, 100%, 60%, 0.25)`);
+                        rootStyle.setProperty('--emerald-bg', `hsla(${hue}, 100%, 60%, 0.15)`);
+                        rootStyle.setProperty('--bg-grad-center', bgGrad);
+                        rootStyle.setProperty('--card-border', `hsla(${hue}, 80%, 50%, 0.3)`);
+                    }
+                    window._rgbAnimationFrame = requestAnimationFrame(tickRgb);
+                }
+                tickRgb();
             };
+
             if (theme === 'rgb-spectrum') {
-                window.startRgbSpectrumEngine();
+                if (document.body) {
+                    window.startRgbSpectrumEngine();
+                } else {
+                    document.addEventListener('DOMContentLoaded', function () {
+                        window.startRgbSpectrumEngine();
+                    });
+                }
             }
+        })();
     </script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -96,9 +171,15 @@
     <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
     <script src="webrtc_fix.js"></script>
     <script src="webrtc_final_fix.js"></script>
+    <script src="lofi-radio.js"></script>
 </head>
 
 <body>
+
+    <canvas id="rgb-liquid-canvas"
+        style="position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:-1;display:none;opacity:0.85;"></canvas>
+    <canvas id="lofi-rain-canvas"></canvas>
+    <canvas id="lofi-aurora-canvas" style="position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:0;display:none;opacity:1;"></canvas>
 
     <div id="fullscreen-drop-overlay" class="fullscreen-drop-overlay">
         <div class="fullscreen-drop-content">
@@ -124,8 +205,11 @@
                     <option value="forest-green" style="background: #0d1f14; color: #ffffff;">Forest</option>
                     <option value="deep-red" style="background: #2a0808; color: #ffffff;">Deep Red</option>
                     <option value="purple-haze" style="background: #1a0b2e; color: #ffffff;">Purple</option>
-                    <option value="rgb-spectrum" style="background: #111115; color: #ff0055;">RGB Spectrum (Live)</option>
-                    <option value="custom" style="background: var(--bg-base); color: var(--text-pure);">Custom...</option>
+                    <option value="rgb-spectrum" style="background: #111115; color: #ff0055;">RGB Spectrum</option>
+                    <option value="lofi-night" style="background: #0b0c16; color: #818cf8;">Lo-Fi Night</option>
+
+                    <option value="custom" style="background: var(--bg-base); color: var(--text-pure);">Custom...
+                    </option>
                 </select>
                 <div id="custom-theme-controls"
                     style="display: none; position: absolute; top: 120%; right: 0; padding: 1rem; background: var(--card-surface); border: 1px solid var(--card-border); border-radius: 12px; flex-direction: column; gap: 0.8rem; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 100; min-width: 220px;">
@@ -157,21 +241,34 @@
                 </div>
             </div>
 
-            <div id="live-stats-pill" title="Live site stats" style="display:flex;align-items:center;gap:0.65rem;background:rgba(255,255,255,0.04);border:1px solid var(--card-border);border-radius:999px;padding:0.35rem 0.85rem;font-size:0.75rem;font-weight:600;color:var(--text-secondary);white-space:nowrap;transition:opacity 0.3s;">
-                <span style="display:flex;align-items:center;gap:0.3rem;" title="Active users on site">
-                    <i class="fa-solid fa-circle" style="font-size:0.45rem;color:var(--accent-emerald);animation:pulse-dot 2s ease-in-out infinite;"></i>
+
+
+            <div id="live-stats-pill" title="Live site stats"
+                style="display:none;align-items:center;gap:0.65rem;background:rgba(255,255,255,0.04);border:1px solid var(--card-border);border-radius:999px;padding:0.35rem 0.85rem;font-size:0.75rem;font-weight:600;color:var(--text-secondary);white-space:nowrap;">
+                <span style="display:flex;align-items:center;gap:0.3rem;">
+                    <i class="fa-solid fa-circle"
+                        style="font-size:0.45rem;color:var(--accent-emerald);animation:pulse-dot 2s ease-in-out infinite;"></i>
                     <span id="live-stat-users">—</span>
                     <span style="color:var(--text-muted);">online</span>
                 </span>
                 <span style="width:1px;height:12px;background:var(--card-border);"></span>
-                <span style="display:flex;align-items:center;gap:0.3rem;" title="Active hosted links">
+                <span style="display:flex;align-items:center;gap:0.3rem;">
                     <i class="fa-solid fa-link" style="font-size:0.65rem;color:var(--accent-emerald);"></i>
                     <span id="live-stat-links">—</span>
                     <span style="color:var(--text-muted);">links</span>
                 </span>
             </div>
 
+
+
+
+
+
             <!-- TODO: Add streak badge here in a future update when they give a damn -->
+            <button id="feedback-toggle-btn" class="btn-audit-toggle" title="Report Bug / Suggest Feature">
+                <i class="fa-solid fa-bug"></i>
+                <span>Report / Suggest</span>
+            </button>
             <button id="audit-toggle-btn" class="btn-audit-toggle" title="Privacy Audit Console">
                 <i class="fa-solid fa-terminal"></i>
                 <span>Audit</span>
@@ -207,10 +304,13 @@
             <button class="top-close-btn" id="shortcuts-modal-close" title="Close"><i
                     class="fa-solid fa-xmark"></i></button>
             <h2 class="drop-modal-title" style="margin-bottom: 0.5rem;">Keyboard Shortcuts</h2>
-            <div class="drop-modal-desc" style="margin-bottom: 1.25rem; color: var(--text-muted);">Quick actions for power users. <span id="shortcuts-os-label" style="font-size:0.8rem;"></span></div>
-            <div id="shortcuts-list" style="display:grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 1rem; color: var(--text-secondary); font-size: 0.9rem;"></div>
+            <div class="drop-modal-desc" style="margin-bottom: 1.25rem; color: var(--text-muted);">Quick actions for
+                power users. <span id="shortcuts-os-label" style="font-size:0.8rem;"></span></div>
+            <div id="shortcuts-list"
+                style="display:grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 1rem; color: var(--text-secondary); font-size: 0.9rem;">
+            </div>
             <script>
-                (function() {
+                (function () {
                     const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
                     const label = document.getElementById('shortcuts-os-label');
                     const list = document.getElementById('shortcuts-list');
@@ -219,6 +319,7 @@
                         ['⌘ + V', 'Paste & Send'],
                         ['⌘ + D', 'Destroy Vault'],
                         ['⌘ + K', 'Command Palette'],
+                        ['⌥ + P', 'Creator Profile'],
                         ['⌥ + N', 'New Workspace'],
                         ['/', 'Command Palette'],
                         ['Esc', 'Close Modals'],
@@ -228,12 +329,14 @@
                         ['Ctrl + V', 'Paste & Send'],
                         ['Ctrl + D', 'Destroy Vault'],
                         ['Ctrl + K', 'Command Palette'],
+                        ['Alt + P', 'Creator Profile'],
                         ['Alt + N', 'New Workspace'],
                         ['/', 'Command Palette'],
                         ['Esc', 'Close Modals'],
                         ['Tab', 'Navigate'],
                         ['Enter', 'Select']
                     ];
+
                     if (list) list.innerHTML = shortcuts.map(([k, d]) =>
                         `<div class="shortcut-item"><strong>${k}</strong></div><div class="shortcut-item" style="color:var(--text-muted);">${d}</div>`
                     ).join('');
@@ -255,20 +358,17 @@
                 style="background: var(--btn-ghost-bg); border: 1px solid var(--card-border); border-radius: 18px; padding: 1.1rem 1.2rem;">
                 <div
                     style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin-bottom:0.6rem;">
-                    <strong style="color: var(--text-pure); font-size: 1rem;">July 2026 Release</strong>
+                    <strong style="color: var(--text-pure); font-size: 1rem;">August 2026 Release</strong>
                     <span
-                        style="font-size: 0.75rem; color: var(--accent-emerald); letter-spacing: 0.08em; text-transform: uppercase;">July
+                        style="font-size: 0.75rem; color: var(--accent-emerald); letter-spacing: 0.08em; text-transform: uppercase;">August
                         2026</span>
                 </div>
                 <ul
-                    style="margin:0; padding-left:1.1rem; color: var(--text-secondary); line-height:1.7; display:grid; gap:0.65rem;">
-                    <li><strong>Ultra-Short Hosted Links</strong>: Compact 8-character base62 tokens with server-persisted encryption payloads for ultra-clean shareable URLs.</li>
-                    <li><strong>Public Discovery</strong>: Browse and search for active public workspaces directly from the home dashboard.</li>
-                    <li><strong>Spectator Mode</strong>: Join workspaces as a read-only spectator to monitor transfers without consuming extra resources.</li>
-                    <li><strong>P2P & Hosted Resume</strong>: Resilient connection recovery that picks up interrupted file transfers right where they disconnected.</li>
-                    <li><strong>Recurring Room Daily Schedule</strong>: Set up automatic room creation and availability based on a customized daily timing schedule.</li>
-                    <li><strong>Command Palette & Search</strong>: Instantly search tools, change themes, join rooms, or paste hosted drop links with <kbd>Ctrl</kbd>+<kbd>K</kbd> or <kbd>/</kbd>.</li>
-                    <li><strong>Hosted Links Height</strong>: Hosted links are now as tall as your best friend.</li>
+                    style="margin:0; padding-left:1.1rem; color: var(--text-secondary); line-height:1.7; display:grid; gap:0.75rem;">
+                    <li><strong style="color:var(--text-pure);">Direct-to-Disk Saving</strong>: Normally, browsers dump everything you download into your RAM until the transfer is finished. If you try downloading a 5GB–50GB file, your browser runs out of memory and crashes. Direct-to-Disk fixes this by writing incoming chunks straight to your hard drive in real time. Your browser uses basically zero RAM, meaning you can send massive files with no tab crashes.</li>
+                    <li><strong style="color:var(--text-pure);">Local Nearby Drop</strong>: Discover and send files directly to devices on the same Wi-Fi network without typing codes or copying links.</li>
+                    <li><strong style="color:var(--text-pure);">Feedback &amp; Reports</strong>: Send bug reports or ideas directly to the admin from right inside the app.</li>
+                    <li><strong style="color:var(--text-pure);">Security Shield</strong>: Safety warnings and confirmations before saving executable or suspicious file types.</li>
                 </ul>
             </section>
         </div>
@@ -315,9 +415,11 @@
                                         rooms &amp; transfers</span>
                                 </div>
                             </div>
-                            <div style="display: flex; gap: 0.75rem; align-items: center; margin-left: auto;">
+                            <div style="display: flex; gap: 0.85rem; align-items: center; margin-left: auto;">
                                 <button id="activity-tab-tracker" class="btn-text active"
                                     style="font-weight: 700; font-size: 0.8rem; padding-bottom: 2px; border-bottom: 2px solid var(--accent-emerald);">Tracker</button>
+                                <button id="activity-tab-nearby" class="btn-text"
+                                    style="font-weight: 500; font-size: 0.8rem; padding-bottom: 2px; color: var(--text-secondary);">Nearby</button>
                                 <button id="activity-tab-discovery" class="btn-text"
                                     style="font-weight: 500; font-size: 0.8rem; padding-bottom: 2px; color: var(--text-secondary);">Discovery</button>
                             </div>
@@ -326,6 +428,28 @@
                             <p class="placeholder-text" id="activity-empty-text"
                                 style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; margin: 0;">Select
                                 an action on the left to initialize a secure peer-to-peer connection.</p>
+                        </div>
+                        <div class="card-body" id="activity-nearby-body"
+                            style="padding: 1.25rem 15px; min-height: 280px; display: none;">
+                            <div
+                                style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.75rem;">
+                                <span
+                                    style="font-size:0.75rem; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.05em;">Devices
+                                    on Same Network</span>
+                                <span id="nearby-radar-pulse"
+                                    style="display:flex; align-items:center; gap:5px; font-size:0.75rem; color:var(--accent-emerald);">
+                                    <i class="fa-solid fa-circle"
+                                        style="font-size:0.45rem; animation:pulse-dot 1.5s infinite;"></i> Scanning
+                                </span>
+                            </div>
+                            <div id="nearby-devices-list"
+                                style="display:flex; flex-direction:column; gap:0.6rem; max-height:320px; overflow-y:auto;">
+                                <p
+                                    style="color:var(--text-muted); font-size:0.85rem; text-align:center; padding:1rem 0;">
+                                    No other devices detected on this network yet.<br><span
+                                        style="font-size:0.75rem; color:var(--text-muted);">Open Emit on another device
+                                        on the same Wi-Fi.</span></p>
+                            </div>
                         </div>
                         <div class="card-body" id="activity-discovery-body"
                             style="padding: 1.5rem 15px; display: none;">
@@ -479,8 +603,6 @@
                         </div>
                     </div>
 
-
-
                 </div>
             </div>
         </div>
@@ -491,7 +613,6 @@
         <div class="dashboard-area">
             <div class="sleek-card full-width">
 
-
                 <div class="card-header">
                     <div class="card-header-left">
                         <div class="avatar-ring is-active"><i class="fa-solid fa-network-wired"></i></div>
@@ -500,7 +621,6 @@
                             <span class="card-status active-text">Connected</span>
                         </div>
                     </div>
-
 
                     <div id="p2p-expiry-timer" class="timer-badge" style="display:flex;">
                         <i class="fa-solid fa-clock"></i>
@@ -512,7 +632,6 @@
                         <button id="destroy-btn" class="btn-pill btn-danger btn-sm">Destroy</button>
                     </div>
                 </div>
-
 
                 <div class="card-body dashboard-grid">
 
@@ -554,9 +673,14 @@
                                         session.</p>
                                 </div>
                             </div>
-                            <div id="chat-typing-indicator"
-                                style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem; display: none;">
-                                Someone is typing...</div>
+                            <div id="chat-typing-indicator" class="chat-typing-indicator" style="display: none;">
+                                <div class="typing-bubble">
+                                    <span class="typing-dot"></span>
+                                    <span class="typing-dot"></span>
+                                    <span class="typing-dot"></span>
+                                </div>
+                                <span class="typing-text">Someone is typing...</span>
+                            </div>
                             <div class="chat-input-row">
                                 <input type="text" id="chat-input" class="form-input"
                                     placeholder="Message your peers securely...">
@@ -684,7 +808,10 @@
             <div class="footer-divider"></div>
             <div class="footer-bottom">
                 <p style="color: var(--text-muted); font-size: 0.9rem;">&copy; 2026 Yoyon. All rights reserved.</p>
-                <a href="mailto:yoyonbusiness@gmail.com" style="color: var(--text-muted); font-size: 0.9rem; text-decoration: none; transition: color 0.2s;" onmouseover="this.style.color='var(--text-pure)'" onmouseout="this.style.color='var(--text-muted)'">yoyonbusiness@gmail.com</a>
+                <a href="mailto:yoyonbusiness@gmail.com"
+                    style="color: var(--text-muted); font-size: 0.9rem; text-decoration: none; transition: color 0.2s;"
+                    onmouseover="this.style.color='var(--text-pure)'"
+                    onmouseout="this.style.color='var(--text-muted)'">yoyonbusiness@gmail.com</a>
             </div>
         </div>
     </footer>
@@ -732,6 +859,24 @@
             </div>
         </div>
     </div>
+
+    <div id="file-note-modal" class="drop-modal-overlay" style="display:none;">
+        <div class="drop-modal" style="padding: 2.5rem; max-width: 480px;">
+            <button class="top-close-btn" id="file-note-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+            <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:1rem;">
+                <div style="width:36px; height:36px; border-radius:50%; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                    <i class="fa-solid fa-note-sticky" style="color:var(--accent-emerald); font-size:0.9rem;"></i>
+                </div>
+                <h2 class="drop-modal-title" style="margin:0;">Note from Sender</h2>
+            </div>
+            <div id="file-note-content" style="background:var(--btn-ghost-bg); border:1px solid var(--card-border); border-radius:10px; padding:1rem 1.25rem; font-size:0.95rem; color:var(--text-primary); line-height:1.6; margin-bottom:1.75rem; white-space:pre-wrap; word-break:break-word;"></div>
+            <div class="drop-modal-btns">
+                <button id="file-note-ok-btn" class="btn-pill btn-ghost">Close</button>
+                <button id="file-note-download-btn" class="btn-pill btn-primary" style="display:none;"><i class="fa-solid fa-download" style="margin-right:0.4rem;"></i>Save File</button>
+            </div>
+        </div>
+    </div>
+
 
     <div id="destroy-modal" class="drop-modal-overlay" style="display:none;">
         <div class="drop-modal" style="padding: 2.5rem;">
@@ -801,6 +946,44 @@
                     <label class="form-label" for="drop-nickname-input">Transfer Nickname (Optional)</label>
                     <input type="text" id="drop-nickname-input" class="form-input" placeholder="e.g. Project Files"
                         autocomplete="off">
+                </div>
+
+                <div id="access-controls-section" style="display:flex; flex-direction:column; gap:0.55rem; margin-top:0.75rem; margin-bottom:0.5rem; padding:0.85rem; border-radius:10px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.2rem;">
+                        <span style="font-size:0.72rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em;">Access Controls</span>
+                        <span id="access-admin-badge" style="display:none; font-size:0.65rem; padding:0.12rem 0.5rem; border-radius:999px; background:rgba(239, 68, 68, 0.15); color:var(--accent-danger); border:1px solid rgba(239, 68, 68, 0.3); font-weight:700;">Admin Mode</span>
+                    </div>
+
+                    <div id="admin-access-controls" style="display:none; flex-direction:column; gap:0.55rem; padding-bottom:0.4rem; border-bottom:1px solid rgba(255,255,255,0.05);">
+                        <label style="display:flex; align-items:center; gap:0.65rem; color:var(--text-secondary); font-size:0.82rem; cursor:pointer;">
+                            <input type="checkbox" id="canary-ping-checkbox">
+                            <span><strong style="color:var(--text-pure);">Canary Ping</strong> — Silently notify admin when link is opened</span>
+                        </label>
+
+                        <label style="display:flex; align-items:center; gap:0.65rem; color:var(--text-secondary); font-size:0.82rem; cursor:pointer;">
+                            <input type="checkbox" id="decoy-trap-checkbox">
+                            <span><strong style="color:var(--accent-danger);">Decoy Trap</strong> — Log opener IP + device to admin inbox invisibly</span>
+                        </label>
+                    </div>
+
+                    <label style="display:flex; align-items:center; gap:0.65rem; color:var(--text-secondary); font-size:0.82rem; cursor:pointer;">
+                        <input type="checkbox" id="timed-window-checkbox">
+                        <span><strong style="color:var(--accent-warning);">Timed Window</strong> — Only downloadable between set hours</span>
+                    </label>
+                    <div id="timed-window-inputs" style="display:none; margin-top:0.35rem;">
+                        <div style="display:flex; align-items:center; flex-wrap:wrap; gap:0.45rem; font-size:0.8rem; color:var(--text-secondary);">
+                            <span>From</span>
+                            <input type="time" id="timed-window-start" class="form-input" value="09:00" style="width:105px; padding:0.25rem 0.5rem; font-size:0.8rem; background:var(--card-elevated);">
+                            <span>to</span>
+                            <input type="time" id="timed-window-end" class="form-input" value="17:00" style="width:105px; padding:0.25rem 0.5rem; font-size:0.8rem; background:var(--card-elevated);">
+                            <span style="font-size:0.72rem; color:var(--text-muted); white-space:nowrap;">(server time)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display:flex; align-items:center; gap:0.65rem; margin-bottom:0.75rem; color:var(--text-secondary); font-size:0.82rem;">
+                    <input type="checkbox" id="drop-burn-checkbox" style="cursor:pointer; width:16px; height:16px;">
+                    <label for="drop-burn-checkbox" style="cursor:pointer;"><i class="fa-solid fa-fire" style="color:var(--accent-danger, #ef4444); font-size:0.85em; margin-right:0.2em;"></i> Burn on First Download</label>
                 </div>
 
                 <div class="drop-modal-btns">
@@ -953,6 +1136,18 @@
                     </label>
                 </div>
 
+                <div class="settings-item">
+                    <div class="settings-info">
+                        <div class="settings-label">Direct-to-Disk Saving</div>
+                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.75rem;">Write chunks
+                            straight to your hard drive to prevent memory crashes on huge files (1GB+).</div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="settings-direct-disk">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
                 <div class="settings-item"
                     style="flex-direction: column; align-items: flex-start; gap: 0.5rem; padding: 1rem 1.25rem;">
                     <div class="settings-info">
@@ -975,6 +1170,8 @@
             </div>
         </div>
     </div>
+
+
 
     <script src="shared.js?v=3"></script>
     <script src="activity-tracker.js?v=3" defer></script>
@@ -1038,19 +1235,90 @@
         </div>
     </div>
 
-    <div id="file-note-modal" class="drop-modal-overlay" style="display:none; z-index: 10003;">
-        <div class="drop-modal"
-            style="max-width: 420px; border: 1px solid var(--accent-emerald); background: var(--card-surface); padding: 2.5rem; text-align: center;">
+    <!-- Report Bug / Suggest Feature Modal -->
+    <div id="feedback-modal" class="drop-modal-overlay" style="display:none; z-index: 10003;">
+        <div class="drop-modal" style="max-width: 480px; padding: 2.25rem; text-align: left;">
+            <button class="top-close-btn" id="feedback-modal-close" title="Close"><i
+                    class="fa-solid fa-xmark"></i></button>
+            <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom: 0.5rem;">
+                <div
+                    style="width:36px; height:36px; border-radius:50%; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.25); display:flex; align-items:center; justify-content:center; color:var(--accent-emerald);">
+                    <i class="fa-solid fa-paper-plane" style="font-size:0.9rem;"></i>
+                </div>
+                <h3 class="drop-modal-title" style="margin:0;">Feedback &amp; Reports</h3>
+            </div>
+            <div class="drop-modal-desc" style="margin-bottom: 1.25rem; color: var(--text-muted); font-size: 0.85rem;">
+                Submit a bug report or suggest a feature directly to the admin account.
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+                <span class="form-label">Type</span>
+                <select id="feedback-type" class="form-input"
+                    style="width: 100%; background: var(--card-elevated); color: var(--text-primary); border: 1px solid var(--card-border);">
+                    <option value="bug">Report a Bug</option>
+                    <option value="feature">Suggest a Feature</option>
+                    <option value="other">General Feedback</option>
+                </select>
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+                <span class="form-label">Message / Details</span>
+                <textarea id="feedback-message" class="form-input" rows="4"
+                    placeholder="Describe the issue or idea in detail..."
+                    style="width: 100%; resize: vertical; box-sizing: border-box;"></textarea>
+            </div>
+
+
+
+
+            <div style="display: flex; gap: 0.75rem;">
+                <button id="feedback-cancel-btn" class="btn-pill btn-ghost" style="flex: 1;">Cancel</button>
+                <button id="feedback-submit-btn" class="btn-pill btn-primary" style="flex: 1;">Send to Admin</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Submissions Inbox Modal -->
+    <div id="admin-inbox-modal" class="drop-modal-overlay" style="display:none; z-index: 10006;">
+        <div class="drop-modal" style="max-width: 620px; width: 94%; padding: 0; overflow: hidden; text-align: left;">
             <div
-                style="margin-bottom: 1.5rem; display: flex; justify-content: center; align-items: center; width: 64px; height: 64px; border-radius: 50%; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.2); margin-left: auto; margin-right: auto;">
-                <i class="fa-solid fa-note-sticky" style="font-size: 1.8rem; color: var(--accent-emerald);"></i>
+                style="display:flex; align-items:center; justify-content:space-between; padding: 1.25rem 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.06); position:relative;">
+                <div style="display:flex; align-items:center; gap:0.6rem;">
+                    <i class="fa-solid fa-inbox" style="color: var(--accent-emerald); font-size:1.05rem;"></i>
+                    <h3 class="drop-modal-title" style="margin:0; font-size:1.1rem;">Feedback &amp; Reports Inbox</h3>
+                </div>
+                <div style="display:flex; align-items:center; margin-right: 2.75rem;">
+                    <button id="admin-inbox-clear-all" class="btn-pill btn-ghost btn-sm" style="font-size:0.75rem; padding:0.35rem 0.85rem; color:var(--accent-danger); border-color:rgba(239,68,68,0.25); cursor:pointer;">Clear All</button>
+                </div>
+                <button class="top-close-btn" id="admin-inbox-close" title="Close"><i class="fa-solid fa-xmark"></i></button>
             </div>
-            <h2 class="drop-modal-title" style="margin-bottom: 0.75rem;">Note from Sender</h2>
-            <div id="file-note-content" class="drop-modal-desc"
-                style="margin-bottom: 2rem; color: var(--text-primary); background: var(--btn-ghost-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 1rem; line-height: 1.7; text-align: left; font-style: italic;">
+            <div id="admin-inbox-list"
+                style="max-height: 480px; overflow-y: auto; padding: 1.25rem; display:flex; flex-direction:column; gap:0.75rem;">
+                <p style="color:var(--text-muted); font-size:0.85rem; text-align:center; padding:1.5rem 0;">Loading
+                    submissions...</p>
             </div>
-            <button id="file-note-ok-btn" class="btn-pill btn-primary" style="width:100%;">Got it, proceed to
-                download</button>
+        </div>
+    </div>
+
+    <!-- Security Warning (Antivirus / Security Scanner) Modal -->
+    <div id="security-warning-modal" class="drop-modal-overlay" style="display:none; z-index: 10005;">
+        <div class="drop-modal"
+            style="max-width: 440px; padding: 2.25rem; text-align: center; border: 1px solid rgba(239, 68, 68, 0.4);">
+            <div
+                style="margin: 0 auto 1.25rem; width: 64px; height: 64px; border-radius: 50%; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); display:flex; align-items:center; justify-content:center;">
+                <i class="fa-solid fa-shield-virus" style="font-size: 1.8rem; color: var(--accent-danger);"></i>
+            </div>
+            <h3 class="drop-modal-title" style="margin-bottom: 0.75rem; color: var(--text-pure);">⚠️ Heads up</h3>
+            <p
+                style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1.5rem; line-height: 1.6; text-align: center;">
+                This file triggered a security warning.<br>
+                It may contain malicious content — but this scanner isn't 100% accurate.<br>
+                <strong>Proceed with caution.</strong>
+            </p>
+            <div style="display: flex; gap: 0.75rem;">
+                <button id="security-cancel-btn" class="btn-pill btn-ghost" style="flex: 1;">Cancel</button>
+                <button id="security-proceed-btn" class="btn-pill btn-danger" style="flex: 1;">Download Anyway</button>
+            </div>
         </div>
     </div>
     <div id="streak-pet-modal" class="drop-modal-overlay" style="display:none; z-index: 10003;">
@@ -1101,6 +1369,139 @@
             </div>
         </div>
     </div>
+
+
+
+
+
+
+    <!-- Nearby P2P Incoming Request Modal -->
+    <div id="nearby-request-modal" class="drop-modal-overlay" style="display:none; z-index: 10003;">
+        <div class="drop-modal" style="max-width: 440px; padding: 2.25rem; text-align: center;">
+            <div
+                style="margin: 0 auto 1.25rem; width: 60px; height: 60px; border-radius: 50%; background: rgba(139,92,246,0.12); border: 1px solid rgba(139,92,246,0.25); display:flex; align-items:center; justify-content:center;">
+                <i class="fa-solid fa-wifi" style="font-size: 1.6rem; color: #8b5cf6;"></i>
+            </div>
+            <h3 class="drop-modal-title" style="margin-bottom: 0.5rem;">Incoming P2P Request</h3>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1.25rem; line-height: 1.5;">
+                <strong id="nearby-sender-name" style="color: var(--text-pure);">Device</strong> wants to send you
+                <strong id="nearby-file-count" style="color: var(--text-pure);">1 file</strong> via a direct connection.
+            </p>
+            <div id="nearby-request-file-list"
+                style="background: var(--btn-ghost-bg); border: 1px solid var(--card-border); border-radius: 10px; padding: 0.85rem; margin-bottom: 1.5rem; text-align: left; max-height: 160px; overflow-y: auto; font-size: 0.85rem; color: var(--text-secondary);">
+            </div>
+            <div style="display: flex; gap: 0.75rem;">
+                <button id="nearby-reject-btn" class="btn-pill btn-ghost" style="flex: 1;">Decline</button>
+                <button id="nearby-accept-btn" class="btn-pill btn-primary" style="flex: 1;">Accept</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Nearby Hosted Link Invitation Modal (Accept Before Opening) -->
+
+    <div id="nearby-hosted-request-modal" class="drop-modal-overlay" style="display:none; z-index: 10004;">
+        <div class="drop-modal" style="max-width: 440px; padding: 2.25rem; text-align: center;">
+            <div
+                style="margin: 0 auto 1.25rem; width: 60px; height: 60px; border-radius: 50%; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.25); display:flex; align-items:center; justify-content:center;">
+                <i class="fa-solid fa-cloud-arrow-down" style="font-size: 1.6rem; color: var(--accent-emerald);"></i>
+            </div>
+            <h3 class="drop-modal-title" style="margin-bottom: 0.5rem;">Incoming Hosted Link</h3>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1.25rem; line-height: 1.5;">
+                <strong id="nearby-hosted-sender-name" style="color: var(--text-pure);">Device</strong> sent you a file
+                link.
+            </p>
+            <div
+                style="background: var(--btn-ghost-bg); border: 1px solid var(--card-border); border-radius: 10px; padding: 0.85rem; margin-bottom: 1.5rem; text-align: left;">
+                <div id="nearby-hosted-filename"
+                    style="font-weight:700; font-size:0.9rem; color:var(--text-pure); word-break:break-all;">file.zip
+                </div>
+                <div id="nearby-hosted-filesize"
+                    style="font-size:0.78rem; color:var(--text-muted); margin-top:0.25rem;">0 MB</div>
+            </div>
+            <div style="display: flex; gap: 0.75rem;">
+                <button id="nearby-hosted-reject-btn" class="btn-pill btn-ghost" style="flex: 1;">Decline</button>
+                <button id="nearby-hosted-accept-btn" class="btn-pill btn-primary" style="flex: 1;">Accept &amp;
+                    Open</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="direct-stream-modal" class="drop-modal-overlay" style="display:none; z-index: 10007;">
+        <div class="drop-modal" style="max-width: 440px; padding: 2.25rem; text-align: center;">
+            <div
+                style="margin: 0 auto 1.25rem; width: 60px; height: 60px; border-radius: 50%; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.25); display:flex; align-items:center; justify-content:center;">
+                <i class="fa-solid fa-hard-drive" style="font-size: 1.6rem; color: var(--accent-emerald);"></i>
+            </div>
+            <h3 class="drop-modal-title" style="margin-bottom: 0.5rem;">Direct-to-Disk Stream</h3>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1.25rem; line-height: 1.5;">
+                <strong id="direct-stream-filename" style="color: var(--text-pure);">file.bin</strong> (<span id="direct-stream-filesize" style="color: var(--accent-emerald);">0 MB</span>) is ready to transfer.
+                <br>Select where to save it to stream directly to your disk.
+            </p>
+            <div style="display: flex; gap: 0.75rem;">
+                <button id="direct-stream-memory-btn" class="btn-pill btn-ghost" style="flex: 1;">Save in RAM</button>
+                <button id="direct-stream-pick-btn" class="btn-pill btn-primary" style="flex: 1;">Pick Save Location</button>
+            </div>
+        </div>
+    </div>
+
+    <input type="file" id="nearby-file-picker" multiple style="display: none;">
+
+    <div id="lofi-radio-player" class="lofi-radio-player">
+        <div class="lofi-deck-wrapper">
+            <div class="lofi-vinyl" id="lofi-vinyl-disc" title="Click to switch Pink/Blue vibe">
+                <div class="lofi-vinyl-center"></div>
+            </div>
+            <div class="lofi-tonearm" id="lofi-tonearm">
+                <div class="lofi-tonearm-base"></div>
+                <div class="lofi-tonearm-arm"></div>
+                <div class="lofi-tonearm-head"></div>
+            </div>
+        </div>
+        <div class="lofi-info">
+            <div class="lofi-title">
+                <div class="lofi-ticker-wrapper">
+                    <span id="lofi-track-title" class="lofi-ticker-text">Midnight Study</span>
+                </div>
+                <div class="lofi-eq-container">
+                    <div class="lofi-eq-bar"></div>
+                    <div class="lofi-eq-bar"></div>
+                    <div class="lofi-eq-bar"></div>
+                    <div class="lofi-eq-bar"></div>
+                </div>
+            </div>
+            <div class="lofi-ticker-wrapper">
+                <div class="lofi-subtitle lofi-ticker-text" id="lofi-track-sub">Track 01 · Rhodes & Chill</div>
+            </div>
+        </div>
+        <div class="lofi-controls">
+            <button class="lofi-btn" id="lofi-mood-btn" title="Toggle Pink/Blue Mood (Easter Egg)"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+            <button class="lofi-btn" id="lofi-expand-btn" title="Ambience sliders"><i class="fa-solid fa-sliders"></i></button>
+            <button class="lofi-btn lofi-play-btn" id="lofi-play-btn" title="Play / Pause"><i class="fa-solid fa-play"></i></button>
+            <button class="lofi-btn" id="lofi-next-btn" title="Next track"><i class="fa-solid fa-forward-step"></i></button>
+            <button class="lofi-btn" id="lofi-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="lofi-expand" id="lofi-expand-panel">
+            <div class="lofi-ambience">
+                <div class="lofi-slider-row">
+                    <span style="width:52px;">Volume</span>
+                    <input type="range" id="lofi-vol" min="0" max="1" step="0.01" value="0.55">
+                </div>
+                <div class="lofi-slider-row">
+                    <span style="width:52px;">Vinyl</span>
+                    <input type="range" id="lofi-vinyl-lvl" min="0" max="1" step="0.01" value="0.18">
+                </div>
+                <div class="lofi-slider-row">
+                    <span style="width:52px;">Rain</span>
+                    <input type="range" id="lofi-rain-lvl" min="0" max="1" step="0.01" value="0.22">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <button id="lofi-launcher-btn" class="lofi-launcher-btn" title="Open Lo-Fi Radio">
+        <i class="fa-solid fa-compact-disc"></i>
+        <span>Lo-Fi Beats</span>
+    </button>
 
 </body>
 

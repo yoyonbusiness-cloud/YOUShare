@@ -2,8 +2,9 @@
 <html lang="en">
 
 <head>
-        <script>
-        (function() {
+    <script>
+        // Clear all P2P-related session/localStorage keys on hosted drop page load
+        (function () {
             const p2pKeys = [
                 'ys_workspace', 'ys_guard', 'ys_is_creator',
                 'emit-p2p-rooms', 'emit-p2p-transfers',
@@ -11,9 +12,10 @@
                 'emit-p2p-resume-state', 'emit-p2p-send-resume-state'
             ];
             p2pKeys.forEach(k => {
-                try { localStorage.removeItem(k); } catch(e) {}
-                try { sessionStorage.removeItem(k); } catch(e) {}
+                try { localStorage.removeItem(k); } catch (e) { }
+                try { sessionStorage.removeItem(k); } catch (e) { }
             });
+            // Remove any workspace/guard from URL if present
             if (window.location.search.includes('workspace=')) {
                 const url = new URL(window.location.href);
                 url.searchParams.delete('workspace');
@@ -21,19 +23,100 @@
                 window.history.replaceState({}, '', url.pathname + url.search + url.hash);
             }
         })();
-        </script>
+    </script>
     <meta charset="UTF-8">
+    <base href="/">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EmitHub - Secure Peer-to-Peer File Sharing</title>
     <meta name="description"
         content="Securely download large files shared via EmitHub, a peer-to-peer file sharing tool.">
-    <link type="image/png" rel="icon" href="favicon.png">
+    <link rel="icon" type="image/png" href="favicon.png">
+
     <script>
-        (function() {
+        (function () {
             const theme = localStorage.getItem('emit-theme') || 'dark';
             document.documentElement.setAttribute('data-theme', theme);
+            window.startRgbSpectrumEngine = function () {
+                if (window._rgbInterval) clearInterval(window._rgbInterval);
+                let canvas = document.getElementById('rgb-liquid-canvas');
+                if (!canvas) {
+                    canvas = document.createElement('canvas');
+                    canvas.id = 'rgb-liquid-canvas';
+                    canvas.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:-1;display:none;opacity:0.85;';
+                    document.body.appendChild(canvas);
+                }
+                canvas.style.display = 'block';
+                let hue = 210;
+                let time = 0;
+
+                function drawLiquid() {
+                    if (!canvas) return;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) return;
+                    time += 0.03;
+                    hue = (hue + 0.5) % 360;
+                    if (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight) {
+                        canvas.width = window.innerWidth;
+                        canvas.height = window.innerHeight;
+                    }
+                    const w = canvas.width;
+                    const h = canvas.height;
+                    ctx.clearRect(0, 0, w, h);
+                    const cx1 = w * 0.5 + Math.sin(time * 0.8) * w * 0.25;
+                    const cy1 = h * 0.4 + Math.cos(time * 0.6) * h * 0.25;
+                    const r1 = Math.min(w, h) * 0.6;
+                    const grad1 = ctx.createRadialGradient(cx1, cy1, r1 * 0.05, cx1, cy1, r1);
+                    grad1.addColorStop(0, `hsla(${hue}, 100%, 55%, 0.45)`);
+                    grad1.addColorStop(0.5, `hsla(${(hue + 40) % 360}, 95%, 40%, 0.3)`);
+                    grad1.addColorStop(0.85, `hsla(${(hue + 80) % 360}, 90%, 15%, 0.15)`);
+                    grad1.addColorStop(1, 'transparent');
+                    ctx.fillStyle = grad1;
+                    ctx.fillRect(0, 0, w, h);
+                    const cx2 = w * 0.4 + Math.cos(time * 0.5) * w * 0.3;
+                    const cy2 = h * 0.65 + Math.sin(time * 0.7) * h * 0.3;
+                    const r2 = Math.min(w, h) * 0.7;
+                    const grad2 = ctx.createRadialGradient(cx2, cy2, r2 * 0.05, cx2, cy2, r2);
+                    grad2.addColorStop(0, `hsla(${(hue + 120) % 360}, 100%, 50%, 0.4)`);
+                    grad2.addColorStop(0.6, `hsla(${(hue + 180) % 360}, 90%, 25%, 0.2)`);
+                    grad2.addColorStop(1, 'transparent');
+                    ctx.fillStyle = grad2;
+                    ctx.fillRect(0, 0, w, h);
+                }
+
+                function tickRgb() {
+                    drawLiquid();
+                    const primaryColor = `hsl(${hue}, 100%, 60%)`;
+                    const secondaryColor = `hsl(${(hue + 60) % 360}, 100%, 60%)`;
+                    const bgGrad = `hsl(${hue}, 70%, 6%)`;
+                    const rootStyle = document.documentElement.style;
+                    rootStyle.setProperty('--accent-emerald', primaryColor);
+                    rootStyle.setProperty('--btn-white-bg', `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`);
+                    rootStyle.setProperty('--btn-white-text', '#000000');
+                    rootStyle.setProperty('--btn-ghost-border', `hsl(${hue}, 90%, 50%)`);
+                    rootStyle.setProperty('--btn-ghost-bg', `hsla(${hue}, 100%, 60%, 0.12)`);
+                    rootStyle.setProperty('--btn-ghost-hover', `hsla(${hue}, 100%, 60%, 0.25)`);
+                    rootStyle.setProperty('--emerald-bg', `hsla(${hue}, 100%, 60%, 0.15)`);
+                    rootStyle.setProperty('--bg-grad-center', bgGrad);
+                    rootStyle.setProperty('--card-border', `hsla(${hue}, 80%, 50%, 0.3)`);
+                }
+                tickRgb();
+                window._rgbInterval = setInterval(tickRgb, 30);
+            };
+
+            if (theme === 'rgb-spectrum') {
+                if (document.body) {
+                    window.startRgbSpectrumEngine();
+                } else {
+                    document.addEventListener('DOMContentLoaded', function () {
+                        window.startRgbSpectrumEngine();
+                    });
+                }
+            }
         })();
     </script>
+
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -81,6 +164,8 @@
             margin-top: 2rem;
             margin-bottom: 3rem;
         }
+
+
 
         .filename {
             font-size: 1.1rem;
@@ -218,19 +303,22 @@
                 justify-content: flex-start;
             }
         }
+
         .collection-list {
             width: 100%;
             margin-top: 2rem;
             padding-top: 2rem;
-            border-top: 1px solid rgba(255,255,255,0.08);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
             text-align: left;
         }
+
         .collection-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
             margin-bottom: 1.5rem;
         }
+
         .collection-title {
             font-size: 0.85rem;
             font-weight: 800;
@@ -241,6 +329,7 @@
             align-items: center;
             gap: 0.6rem;
         }
+
         .collection-count {
             background: var(--accent-emerald);
             color: #000;
@@ -250,24 +339,27 @@
             border-radius: 20px;
             letter-spacing: 0;
         }
+
         .collection-item {
             display: flex;
             justify-content: space-between;
             align-items: center;
             padding: 1.25rem;
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.05);
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.05);
             backdrop-filter: blur(10px);
             border-radius: 16px;
             margin-bottom: 0.75rem;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
+
         .collection-item:hover {
-            background: rgba(255,255,255,0.06);
+            background: rgba(255, 255, 255, 0.06);
             border-color: var(--accent-emerald);
             transform: translateY(-2px) scale(1.01);
-            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
         }
+
         .file-info {
             display: flex;
             align-items: center;
@@ -275,6 +367,7 @@
             flex: 1;
             min-width: 0;
         }
+
         .file-icon {
             width: 44px;
             height: 44px;
@@ -287,11 +380,13 @@
             font-size: 1.2rem;
             flex-shrink: 0;
         }
+
         .file-details {
             display: flex;
             flex-direction: column;
             overflow: hidden;
         }
+
         .collection-name {
             font-size: 1rem;
             font-weight: 700;
@@ -300,6 +395,7 @@
             text-overflow: ellipsis;
             white-space: nowrap;
         }
+
         .file-meta {
             font-size: 0.75rem;
             color: var(--text-secondary);
@@ -321,6 +417,8 @@
                     <option value="forest-green" style="background: #0d1f14; color: #ffffff;">Forest</option>
                     <option value="deep-red" style="background: #2a0808; color: #ffffff;">Deep Red</option>
                     <option value="purple-haze" style="background: #1a0b2e; color: #ffffff;">Purple</option>
+                    <option value="rgb-spectrum" style="background: #111115; color: #ff0055;">RGB Spectrum</option>
+                    <option value="lofi-night" style="background: #0b0c16; color: #818cf8;">Lo-Fi Night</option>
                     <option value="custom" style="background: var(--bg-base); color: var(--text-pure);">Custom...
                     </option>
                 </select>
@@ -397,14 +495,11 @@
 
             <div class="filename" id="drop-filename">Loading...</div>
             <div class="meta" id="drop-size"></div>
-            <div class="status" id="drop-status">
-                <span id="drop-direction-indicator" style="margin-right:0.5em;"></span>
-                <span id="drop-status-text"></span>
-            </div>
 
-            <div id="expiry-timer" class="timer-badge" style="display:none;">
+            <div id="drop-status" class="status">Decryption happens in your browser.</div>
+            <div id="expiry-timer" class="timer-badge" style="display: none;">
                 <i class="fa-solid fa-clock"></i>
-                <span id="expiry-text">Expires in --:--</span>
+                <span id="expiry-text">Expires in ...</span>
             </div>
 
             <button id="drop-download-btn" class="btn-download">
@@ -429,17 +524,22 @@
 
     <div id="settings-modal" class="drop-modal-overlay" style="display: none;">
         <div class="drop-modal" style="max-width: 480px;">
-            <div class="drop-modal-header" style="flex-direction: column; align-items: flex-start; gap: 0.5rem; position: relative;">
-                <h2 class="drop-modal-title" style="font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em;">Settings</h2>
-                <div style="font-size: 0.85rem; color: var(--text-secondary);">Configure your secure transfer environment.</div>
-                <button id="settings-close" class="btn-icon" style="position: absolute; top: 0; right: 0;"><i class="fa-solid fa-xmark"></i></button>
+            <div class="drop-modal-header"
+                style="flex-direction: column; align-items: flex-start; gap: 0.5rem; position: relative;">
+                <h2 class="drop-modal-title" style="font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em;">
+                    Settings</h2>
+                <div style="font-size: 0.85rem; color: var(--text-secondary);">Configure your secure transfer
+                    environment.</div>
+                <button id="settings-close" class="btn-icon" style="position: absolute; top: 0; right: 0;"><i
+                        class="fa-solid fa-xmark"></i></button>
             </div>
 
             <div class="settings-list" style="margin-top: 2rem; display: flex; flex-direction: column; gap: 1rem;">
                 <div class="settings-item">
                     <div class="settings-info">
                         <div class="settings-label">Procedural Audio</div>
-                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.75rem;">Play subtle chimes for successful connections and transfers.</div>
+                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.75rem;">Play subtle
+                            chimes for successful connections and transfers.</div>
                     </div>
                     <label class="switch">
                         <input type="checkbox" id="settings-audio" checked>
@@ -450,7 +550,8 @@
                 <div class="settings-item">
                     <div class="settings-info">
                         <div class="settings-label">Detailed Timer</div>
-                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.75rem;">ON shows total rolling minutes (e.g. "90 min"). OFF shows largest unit only (e.g. "1 hr").</div>
+                        <div class="settings-hint" style="color: var(--text-muted); font-size: 0.75rem;">ON shows total
+                            rolling minutes (e.g. "90 min"). OFF shows largest unit only (e.g. "1 hr").</div>
                     </div>
                     <label class="switch">
                         <input type="checkbox" id="settings-detailed-timer">
@@ -460,7 +561,9 @@
             </div>
 
             <div class="drop-modal-btns" style="margin-top: 2.5rem;">
-                <button id="settings-save" class="btn-pill btn-primary w-full" style="padding: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.9rem;">Save Preferences</button>
+                <button id="settings-save" class="btn-pill btn-primary w-full"
+                    style="padding: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.9rem;">Save
+                    Preferences</button>
             </div>
         </div>
     </div>
@@ -470,6 +573,11 @@
             <div class="footer-row">
                 <div class="footer-brand">YOYON</div>
                 <div class="footer-socials">
+                    <a href="https://paypal.me/FlyingKeyboard" class="btn-donate" title="Support on PayPal"
+                        target="_blank" rel="noopener">
+                        <i class="fa-brands fa-paypal"></i>
+                        Donate
+                    </a>
                     <a href="https://github.com/yoyonbusiness-cloud/YOUShare.git" target="_blank" rel="noopener"
                         title="GitHub" class="social-icon">
                         <i class="fa-brands fa-github"></i>
@@ -489,8 +597,10 @@
     <script>
         const socket = io();
         const params = new URLSearchParams(window.location.search);
-        const dropToken = params.get('t');
+        const dropToken = params.get('t') || (window.location.pathname.startsWith('/h/') ? window.location.pathname.split('/')[2] : null);
         let dropDeletedShown = false;
+        // Auto-join logic removed: opening a drop link/tab will NOT join the P2P room or trigger 'came back' logic.
+        // Only the activity tracker should join/track rooms.
 
         function showDropDeletedState() {
             if (dropDeletedShown) return;
@@ -534,20 +644,22 @@
                 document.documentElement.setAttribute('data-theme', newTheme);
                 localStorage.setItem('emit-theme', newTheme);
 
-                if (newTheme === 'custom') {
+                if (window._rgbInterval) {
+                    clearInterval(window._rgbInterval);
+                    window._rgbInterval = null;
+                }
+
+                if (newTheme === 'rgb-spectrum') {
+                    if (typeof window.startRgbSpectrumEngine === 'function') {
+                        window.startRgbSpectrumEngine();
+                    }
+                } else if (newTheme === 'custom') {
                     customThemeControls.style.display = 'flex';
                     updateCustomTheme();
                     if (typeof applySavedElementPaints === 'function') applySavedElementPaints();
                 } else {
                     customThemeControls.style.display = 'none';
-                    
                     localStorage.removeItem('emit-element-paints');
-                    document.querySelectorAll('*').forEach(el => {
-                        el.style.removeProperty('color');
-                        el.style.removeProperty('background-color');
-                        el.style.removeProperty('border-color');
-                    });
-
                     const propsToRemove = [
                         '--bg-base', '--bg-grad-center', '--card-surface', '--card-elevated', '--card-border', '--audit-bg',
                         '--accent-emerald', '--btn-white-bg', '--btn-ghost-bg', '--btn-ghost-border', '--btn-ghost-hover',
@@ -877,8 +989,10 @@
 
             const isDropPage = await receiveHostedDrop();
             if (!isDropPage) {
-                document.getElementById('drop-status').textContent = 'No drop token found. This link may be invalid.';
-                document.getElementById('drop-download-btn').disabled = true;
+                const st = document.getElementById('drop-status');
+                if (st) st.textContent = 'No drop token found. This link may be invalid.';
+                const db = document.getElementById('drop-download-btn');
+                if (db) db.disabled = true;
             }
         });
     </script>

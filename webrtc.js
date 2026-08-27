@@ -1,4 +1,3 @@
-// Hosted Resume Modal Logic (restored)
 window.showHostedResumeModal = function (token, filenames, onResume) {
     let modal = document.getElementById('hosted-resume-modal');
     if (!modal) {
@@ -77,6 +76,7 @@ socket.on('connect', () => {
     window.isShadowTab = false;
     window.primarySocketId = null;
     syncDebugState();
+    if (typeof announceNearbyPresence === 'function') announceNearbyPresence();
     if (typeof roomId !== 'undefined' && roomId && typeof signalingId !== 'undefined' && signalingId) {
         try {
             localStorage.setItem('ys_workspace', roomId);
@@ -337,13 +337,175 @@ const configuration = {
 let receiveBuffer = {};
 let receivedChunks = {};
 let activeReceives = {};
+let directStreamHandles = {};
 const CHUNK_SIZE = 64 * 1024;
 const RECEIVE_PERSIST_EVERY_CHUNKS = 16;
 const P2P_RESUME_STORAGE_KEY = 'emit-p2p-resume-state';
 const P2P_SEND_RESUME_STORAGE_KEY = 'emit-p2p-send-resume-state';
 
 window.activeReceives = activeReceives;
+window.directStreamHandles = directStreamHandles;
 
+async function setupDirectToDiskStream(fileId, meta) {
+    const isOver500MB = meta && meta.size && meta.size >= 500 * 1024 * 1024;
+    if (!isOver500MB || typeof window.showSaveFilePicker !== 'function') {
+        return null;
+    }
+    const modal = document.getElementById('direct-stream-modal');
+    const fnEl = document.getElementById('direct-stream-filename');
+    const fsEl = document.getElementById('direct-stream-filesize');
+    const pickBtn = document.getElementById('direct-stream-pick-btn');
+    const memBtn = document.getElementById('direct-stream-memory-btn');
+
+    if (modal && pickBtn && memBtn) {
+        if (fnEl) fnEl.textContent = meta.originalName || meta.name || 'file';
+        if (fsEl) fsEl.textContent = typeof formatBytes === 'function' ? formatBytes(meta.size || 0) : ((meta.size || 0) + ' bytes');
+        modal.style.display = 'flex';
+        if (typeof playProceduralSound === 'function') playProceduralSound('chime');
+
+        return new Promise((resolve) => {
+            pickBtn.onclick = async () => {
+                modal.style.display = 'none';
+                try {
+                    const handle = await window.showSaveFilePicker({
+                        suggestedName: meta.originalName || meta.name || 'download'
+                    });
+                    const writable = await handle.createWritable();
+                    const streamObj = {
+                        handle,
+                        writable,
+                        writeQueue: Promise.resolve(),
+                        active: true
+                    };
+                    directStreamHandles[fileId] = streamObj;
+                    if (receiveBuffer[fileId]) {
+                        for (const [idxStr, chunkData] of Object.entries(receiveBuffer[fileId])) {
+                            const cIdx = Number(idxStr);
+                            if (chunkData) {
+                                enqueueDirectWrite(fileId, cIdx, chunkData);
+                                delete receiveBuffer[fileId][cIdx];
+                            }
+                        }
+                    }
+                    auditLog(`Direct-to-Disk stream created for "${meta.name}" — writing chunks straight to disk.`);
+                    resolve(streamObj);
+                } catch (err) {
+                    if (err.name !== 'AbortError') {
+                        console.warn('Direct-to-disk picker error:', err);
+                    }
+                    resolve(null);
+                }
+            };
+            memBtn.onclick = () => {
+                modal.style.display = 'none';
+                resolve(null);
+            };
+        });
+    }
+
+    try {
+        const handle = await window.showSaveFilePicker({
+            suggestedName: meta.originalName || meta.name || 'download'
+        });
+        const writable = await handle.createWritable();
+        const streamObj = {
+            handle,
+            writable,
+            writeQueue: Promise.resolve(),
+            active: true
+        };
+        directStreamHandles[fileId] = streamObj;
+        if (receiveBuffer[fileId]) {
+            for (const [idxStr, chunkData] of Object.entries(receiveBuffer[fileId])) {
+                const cIdx = Number(idxStr);
+                if (chunkData) {
+                    enqueueDirectWrite(fileId, cIdx, chunkData);
+                    delete receiveBuffer[fileId][cIdx];
+                }
+            }
+        }
+        auditLog(`Direct-to-Disk stream created for "${meta.name}" — writing chunks straight to disk.`);
+        return streamObj;
+    } catch (err) {
+        if (err.name !== 'AbortError') {
+            console.warn('Direct-to-disk picker error:', err);
+        }
+        return null;
+    }
+}
+
+function enqueueDirectWrite(fileId, chunkIndex, chunkData) {
+    const stream = directStreamHandles[fileId];
+    if (!stream || !stream.writable || !stream.active) return false;
+    if (!stream.bufferedChunks) {
+        stream.bufferedChunks = new Map();
+        stream.bufferedBytes = 0;
+    }
+    const chunkBuf = chunkData instanceof Uint8Array ? chunkData : new Uint8Array(chunkData);
+    stream.bufferedChunks.set(chunkIndex, chunkBuf);
+    stream.bufferedBytes += chunkBuf.byteLength;
+
+    if (stream.bufferedBytes >= 4 * 1024 * 1024) {
+        flushDirectStreamBuffer(fileId);
+    }
+    return true;
+}
+
+function flushDirectStreamBuffer(fileId) {
+    const stream = directStreamHandles[fileId];
+    if (!stream || !stream.writable || !stream.active || !stream.bufferedChunks || stream.bufferedChunks.size === 0) return;
+
+    const entries = Array.from(stream.bufferedChunks.entries()).sort((a, b) => a[0] - b[0]);
+    stream.bufferedChunks = new Map();
+    stream.bufferedBytes = 0;
+
+    let currentStartChunk = entries[0][0];
+    let currentChunks = [entries[0][1]];
+    let currentTotalSize = entries[0][1].byteLength;
+
+    const batches = [];
+
+    for (let i = 1; i < entries.length; i++) {
+        const [cIdx, buf] = entries[i];
+        const lastIdx = currentStartChunk + currentChunks.length - 1;
+        if (cIdx === lastIdx + 1) {
+            currentChunks.push(buf);
+            currentTotalSize += buf.byteLength;
+        } else {
+            batches.push({ startChunk: currentStartChunk, chunks: currentChunks, totalSize: currentTotalSize });
+            currentStartChunk = cIdx;
+            currentChunks = [buf];
+            currentTotalSize = buf.byteLength;
+        }
+    }
+    batches.push({ startChunk: currentStartChunk, chunks: currentChunks, totalSize: currentTotalSize });
+
+    for (const batch of batches) {
+        let combined;
+        if (batch.chunks.length === 1) {
+            combined = batch.chunks[0];
+        } else {
+            combined = new Uint8Array(batch.totalSize);
+            let offset = 0;
+            for (const chunk of batch.chunks) {
+                combined.set(chunk, offset);
+                offset += chunk.byteLength;
+            }
+        }
+        const writePosition = batch.startChunk * CHUNK_SIZE;
+        stream.writeQueue = stream.writeQueue.then(async () => {
+            try {
+                await stream.writable.write({
+                    type: 'write',
+                    position: writePosition,
+                    data: combined
+                });
+            } catch (err) {
+                console.warn('Direct disk batch write error at chunk ' + batch.startChunk + ':', err);
+            }
+        });
+    }
+}
 
 let p2pTransfersResuming = {};
 let transferSpeedStats = {};
@@ -1256,21 +1418,28 @@ ui.buttons.leaveConfirm.addEventListener('click', () => {
     if (timerMin > 60) timerMin = 60;
     if (timerMin < 1) timerMin = 1;
 
-    ui.panels.leaveModal.style.display = 'none';
+    if (typeof playProceduralSound === 'function') playProceduralSound('chime');
+    const transferScreen = document.getElementById('screen-transfer');
+    if (transferScreen) transferScreen.classList.add('screen-exit');
 
-    if (strategy === 'standard') {
-        socket.emit('leave-room', signalingId, { strategy: 'standard' });
-        performWipe(true);
-        showToast('Left Workspace', 'You have disconnected from the workspace.', 'info');
-    } else if (strategy === 'peer') {
-        showToast('Standby Mode', 'Connection closed, but files will stay hosted until peer exits.', 'info');
-        socket.emit('leave-room', signalingId, { strategy: 'on-peer-exit' });
-        performWipe(true);
-    } else if (strategy === 'timer') {
-        showToast('Self-Destruct Armed', `This workspace will wipe in ${timerMin} minutes.`, 'warning');
-        socket.emit('leave-room', signalingId, { strategy: 'timer', duration: timerMin * 60 * 1000 });
-        performWipe(true);
-    }
+    setTimeout(() => {
+        if (transferScreen) transferScreen.classList.remove('screen-exit');
+        ui.panels.leaveModal.style.display = 'none';
+
+        if (strategy === 'standard') {
+            socket.emit('leave-room', signalingId, { strategy: 'standard' });
+            performWipe(true);
+            showToast('Left Workspace', 'You have disconnected from the workspace.', 'info');
+        } else if (strategy === 'peer') {
+            showToast('Standby Mode', 'Connection closed, but files will stay hosted until peer exits.', 'info');
+            socket.emit('leave-room', signalingId, { strategy: 'on-peer-exit' });
+            performWipe(true);
+        } else if (strategy === 'timer') {
+            showToast('Self-Destruct Armed', `This workspace will wipe in ${timerMin} minutes.`, 'warning');
+            socket.emit('leave-room', signalingId, { strategy: 'timer', duration: timerMin * 60 * 1000 });
+            performWipe(true);
+        }
+    }, 280);
 });
 
 window.forceLeave = function (reason = 'standard', fullPage = true) {
@@ -1375,7 +1544,25 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
     const hadConfigPreload = !!activeRoomScheduleMap[rawId];
 
     if (urlOpen && urlClose) {
-        activeRoomScheduleMap[rawId] = { open: urlOpen, close: urlClose };
+        const tzParam = urlParams.get('tz');
+        let storedOpen = urlOpen;
+        let storedClose = urlClose;
+        if (tzParam !== null) {
+            const creatorOffset = parseInt(tzParam, 10);
+            const localOffset = new Date().getTimezoneOffset();
+            const diffMinutes = creatorOffset - localOffset;
+            const convertTime = (timeStr) => {
+                const [h, m] = timeStr.split(':').map(Number);
+                let total = h * 60 + m + diffMinutes;
+                total = ((total % 1440) + 1440) % 1440;
+                const rh = String(Math.floor(total / 60)).padStart(2, '0');
+                const rm = String(total % 60).padStart(2, '0');
+                return `${rh}:${rm}`;
+            };
+            storedOpen = convertTime(urlOpen);
+            storedClose = convertTime(urlClose);
+        }
+        activeRoomScheduleMap[rawId] = { open: storedOpen, close: storedClose };
         localStorage.setItem('ys_rooms_schedule', JSON.stringify(activeRoomScheduleMap));
     }
 
@@ -1414,10 +1601,9 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
         signalingId: finalId,
         secret,
         isCreator,
-        inviteUrl: `${window.location.origin}${window.location.pathname}?workspace=${rawId}${secret ? "&guard=" + encodeURIComponent(secret) : ""}`
+        inviteUrl: `${window.location.origin}${window.location.pathname}?workspace=${rawId}`
     };
     syncDebugState();
-
     if (isCreator) {
         try {
             localStorage.setItem('ys_workspace', rawId);
@@ -1616,13 +1802,13 @@ socket.on('secret-mismatch', () => {
     syncDebugState();
     if (typeof showScreen === 'function') showScreen('room');
     updateConnectionStatus('disconnected');
-
+    
     if (wasAlreadyPrompted) {
         showToast('Incorrect Passcode', 'The secret word for this workspace is incorrect. Please try again.', 'error');
     } else {
         showToast('Passcode Required', 'This workspace is protected by a secret passcode. Please enter it to join.', 'error');
     }
-
+    
     if (typeof ui !== 'undefined' && ui.panels.secretPromptModal) {
         ui.panels.secretPromptModal.style.display = 'flex';
         if (ui.inputs.promptSecret) {
@@ -1634,7 +1820,8 @@ socket.on('secret-mismatch', () => {
 
 socket.on('chat-history', (history) => {
     history.forEach(msg => {
-        appendToChatLog(msg.senderName, msg.text, false);
+        if (msg.text == null || msg.text === '') return;
+        appendToChatLog(msg.senderName || 'Peer', msg.text, false);
     });
 });
 
@@ -1882,9 +2069,12 @@ socket.on('peer-destroyed-room', () => {
 socket.on('chat-message', (msg) => {
     if (msg.senderId === socket.id) return;
     const peerName = msg.senderName || 'Peer';
-    if (typeof window.appendToChatLog === 'function') window.appendToChatLog(peerName, msg.text, false, !!msg.ephemeral, msg.msgId || null);
-    reportUserActivity(true);
-    if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+    setPeerTyping(peerName, false);
+    if (msg.text != null && msg.text !== '') {
+        if (typeof window.appendToChatLog === 'function') window.appendToChatLog(peerName, msg.text, false, !!msg.ephemeral, msg.msgId || null);
+        reportUserActivity(true);
+        if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+    }
 });
 
 socket.on('message-read', (msgId) => {
@@ -2842,6 +3032,7 @@ function setupDataChannel(channel, targetId) {
                                         direction: 'download'
                                     });
                                 }
+                                setupDirectToDiskStream(meta.id, meta);
                             }
                             if (persistedState && persistedState.receivedChunks && persistedState.receivedChunks.length > 0) {
                                 receivedChunks[meta.id] = new Set(persistedState.receivedChunks);
@@ -2890,6 +3081,10 @@ function setupDataChannel(channel, targetId) {
                                 cancelBtn.onclick = () => {
                                     setResumeButtonState(meta.id, false, null);
                                     clearPersistedTransferArtifacts(meta.id);
+                                    if (directStreamHandles[meta.id]) {
+                                        try { if (directStreamHandles[meta.id].writable) directStreamHandles[meta.id].writable.abort(); } catch (e) { }
+                                        delete directStreamHandles[meta.id];
+                                    }
                                     delete activeReceives[meta.id];
                                     delete receiveBuffer[meta.id];
                                     delete receivedChunks[meta.id];
@@ -2908,12 +3103,16 @@ function setupDataChannel(channel, targetId) {
                     } else if (msg.type === 'chunk-header') {
                         pendingChunkHeader = msg;
                     } else if (msg.type === 'file-done') {
-                        finalizeDownload(msg.id);
+                        await finalizeDownload(msg.id);
                     } else if (msg.type === 'cancel-transfer') {
                         const cancelId = msg.fileId;
                         if (activeReceives[cancelId]) {
                             setResumeButtonState(cancelId, false, null);
                             clearPersistedTransferArtifacts(cancelId);
+                            if (directStreamHandles[cancelId]) {
+                                try { if (directStreamHandles[cancelId].writable) directStreamHandles[cancelId].writable.abort(); } catch (e) { }
+                                delete directStreamHandles[cancelId];
+                            }
                             delete activeReceives[cancelId];
                             delete receiveBuffer[cancelId];
                             delete receivedChunks[cancelId];
@@ -2944,11 +3143,23 @@ function setupDataChannel(channel, targetId) {
                             const plain = await decryptMeta(msg.payload, peer.ecdhKey);
                             if (plain.type === 'reaction') {
                                 appendToChatLog(peerName, plain.emoji, true);
+                            } else if (plain.type === 'typing') {
+                                setPeerTyping(peerName, !!plain.isTyping);
+                            } else if (plain.type === 'chat') {
+                                setPeerTyping(peerName, false);
+                                if (plain.text != null && plain.text !== '') {
+                                    appendToChatLog(peerName, plain.text, false, !!plain.ephemeral, plain.msgId || null);
+                                    reportUserActivity(true);
+                                    if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+                                }
                             } else {
-                                appendToChatLog(peerName, plain.text, false, !!plain.ephemeral, plain.msgId || null);
+                                setPeerTyping(peerName, false);
+                                if (plain.text != null && plain.text !== '') {
+                                    appendToChatLog(peerName, plain.text, false, !!plain.ephemeral, plain.msgId || null);
+                                    reportUserActivity(true);
+                                    if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+                                }
                             }
-                            reportUserActivity(true);
-                            if (typeof playProceduralSound === 'function') playProceduralSound('pop');
                         } catch (err) {
                             console.error('Chat decryption failed', err);
                         }
@@ -2997,8 +3208,12 @@ function setupDataChannel(channel, targetId) {
                             continue;
                         }
                     }
-                    if (!receiveBuffer[fileId]) receiveBuffer[fileId] = [];
-                    receiveBuffer[fileId][chunkIndex] = chunkData;
+                    if (directStreamHandles[fileId] && directStreamHandles[fileId].active) {
+                        enqueueDirectWrite(fileId, chunkIndex, chunkData);
+                    } else {
+                        if (!receiveBuffer[fileId]) receiveBuffer[fileId] = [];
+                        receiveBuffer[fileId][chunkIndex] = chunkData;
+                    }
                     receivedChunks[fileId].add(chunkIndex);
                     if (receivedChunks[fileId].size % RECEIVE_PERSIST_EVERY_CHUNKS === 0 || receivedChunks[fileId].size === meta.totalChunks) {
                         persistPartialReceive(fileId);
@@ -3454,7 +3669,7 @@ function sendFile(file, targetId, nickname = '', note = '') {
     });
 }
 
-function finalizeDownload(fileId) {
+async function finalizeDownload(fileId) {
     const meta = activeReceives[fileId];
     if (!meta) return;
 
@@ -3462,9 +3677,41 @@ function finalizeDownload(fileId) {
 
     const isRoomPublic = window.isPublicRoomSession || !!document.getElementById('public-room-checkbox')?.checked;
 
-    const orderedChunks = receiveBuffer[fileId].filter(Boolean);
-    const blob = new Blob(orderedChunks, { type: meta.mime || 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
+    let url = '';
+    let isDirectStream = false;
+
+    if (directStreamHandles[fileId] && directStreamHandles[fileId].writable) {
+        isDirectStream = true;
+        const stream = directStreamHandles[fileId];
+        try {
+            flushDirectStreamBuffer(fileId);
+            if (stream.writeQueue) {
+                await stream.writeQueue;
+            }
+            if (receiveBuffer[fileId]) {
+                for (const [idxStr, chunkData] of Object.entries(receiveBuffer[fileId])) {
+                    const cIdx = Number(idxStr);
+                    if (chunkData) {
+                        await stream.writable.write({
+                            type: 'write',
+                            position: cIdx * CHUNK_SIZE,
+                            data: chunkData
+                        });
+                    }
+                }
+            }
+            await stream.writable.close();
+            auditLog(`Direct-to-Disk write completed and file closed for "${meta.name}".`);
+        } catch (closeErr) {
+            console.error('Error closing direct-to-disk stream:', closeErr);
+        }
+        delete directStreamHandles[fileId];
+        delete receiveBuffer[fileId];
+    } else {
+        const orderedChunks = (receiveBuffer[fileId] || []).filter(Boolean);
+        const blob = new Blob(orderedChunks, { type: meta.mime || 'application/octet-stream' });
+        url = URL.createObjectURL(blob);
+    }
 
     if (isRoomPublic) {
         const ext = meta.name.split('.').pop().toLowerCase();
@@ -3542,35 +3789,77 @@ function finalizeDownload(fileId) {
 
     const downloadBtn = document.getElementById(`download-btn-${fileId}`);
     if (downloadBtn) {
-        downloadBtn.href = url;
-        downloadBtn.download = meta.name;
-        downloadBtn.setAttribute('role', 'button');
-        downloadBtn.style.pointerEvents = 'auto';
-        downloadBtn.style.opacity = '1';
-        downloadBtn.onclick = (e) => {
-            if (meta.note && meta.note.trim()) {
+        if (isDirectStream) {
+            downloadBtn.removeAttribute('href');
+            downloadBtn.textContent = 'Saved to Disk';
+            downloadBtn.setAttribute('role', 'button');
+            downloadBtn.style.pointerEvents = 'auto';
+            downloadBtn.style.opacity = '1';
+            downloadBtn.onclick = (e) => {
                 e.preventDefault();
-                const noteModal = document.getElementById('file-note-modal');
-                const noteContent = document.getElementById('file-note-content');
-                const noteOkBtn = document.getElementById('file-note-ok-btn');
-                if (noteModal && noteContent && noteOkBtn) {
-                    noteContent.textContent = meta.note;
-                    noteModal.style.display = 'flex';
-                    noteOkBtn.onclick = () => {
-                        noteModal.style.display = 'none';
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = meta.name;
-                        document.body.appendChild(a);
-                        a.click();
-                        a.remove();
-                    };
+                showToast('Saved to Disk', `${meta.name} was saved directly to your chosen disk location.`, 'success');
+            };
+        } else {
+            downloadBtn.href = url;
+            downloadBtn.download = meta.name;
+            downloadBtn.setAttribute('role', 'button');
+            downloadBtn.style.pointerEvents = 'auto';
+            downloadBtn.style.opacity = '1';
+
+            const ext = meta.name.split('.').pop().toLowerCase();
+            const isRiskyType = ['exe', 'bat', 'cmd', 'vbs', 'ps1', 'scr', 'jar', 'apk', 'com', 'msi'].includes(ext);
+
+            downloadBtn.onclick = (e) => {
+                e.preventDefault();
+                const proceedWithDownload = () => {
+                    if (meta.note && meta.note.trim()) {
+                        const noteModal = document.getElementById('file-note-modal');
+                        const noteContent = document.getElementById('file-note-content');
+                        const noteOkBtn = document.getElementById('file-note-ok-btn');
+                        const noteDownloadBtn = document.getElementById('file-note-download-btn');
+                        if (noteModal && noteContent && noteOkBtn) {
+                            noteContent.textContent = meta.note;
+                            noteModal.style.display = 'flex';
+                            noteOkBtn.onclick = () => {
+                                noteModal.style.display = 'none';
+                            };
+                            if (noteDownloadBtn) {
+                                noteDownloadBtn.style.display = '';
+                                noteDownloadBtn.onclick = () => {
+                                    noteModal.style.display = 'none';
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = meta.name;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    a.remove();
+                                };
+                            }
+                            return;
+                        }
+                    }
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = meta.name;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                };
+
+                if (meta.isFlaggedSecurity || isRiskyType) {
+                    if (typeof window.showSecurityWarningModal === 'function') {
+                        window.showSecurityWarningModal(meta.name, proceedWithDownload, null);
+                    } else {
+                        proceedWithDownload();
+                    }
+                } else {
+                    proceedWithDownload();
                 }
-            }
-        };
+            };
+        }
     }
 
-    updateTransferProgress(meta.id, 100, 'Ready to Save', '', '');
+    updateTransferProgress(meta.id, 100, isDirectStream ? 'Saved to Disk' : 'Ready to Save', '', '');
     if (typeof ActivityTracker !== 'undefined') {
         ActivityTracker.addTransfer(meta.id, {
             name: meta.originalName || meta.name,
@@ -3590,24 +3879,31 @@ function finalizeDownload(fileId) {
             pausedLabel: ''
         });
     }
-    showToast('File Received', `${meta.name} is ready to save.`, 'success');
+    showToast('File Received', isDirectStream ? `${meta.name} saved directly to disk.` : `${meta.name} is ready to save.`, 'success');
 
     if (meta.note && meta.note.trim()) {
         const noteModal = document.getElementById('file-note-modal');
         const noteContent = document.getElementById('file-note-content');
         const noteOkBtn = document.getElementById('file-note-ok-btn');
+        const noteDownloadBtn = document.getElementById('file-note-download-btn');
         if (noteModal && noteContent && noteOkBtn) {
             noteContent.textContent = meta.note;
             noteModal.style.display = 'flex';
             noteOkBtn.onclick = () => {
                 noteModal.style.display = 'none';
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = meta.name;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
             };
+            if (noteDownloadBtn) {
+                noteDownloadBtn.style.display = '';
+                noteDownloadBtn.onclick = () => {
+                    noteModal.style.display = 'none';
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = meta.name;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                };
+            }
         }
     }
 
@@ -3904,23 +4200,54 @@ function showInactivityWarning(graceMs) {
     }
 }
 
-socket.on('inactivity-warning', (graceMs) => {
-    showInactivityWarning(graceMs);
-});
+const activeTypers = new Set();
+let typingDisplayTimeout = null;
 
-socket.on('typing-start', (peerId, peerName) => {
+function setPeerTyping(name, isTyping) {
     const indicator = document.getElementById('chat-typing-indicator');
-    if (indicator) {
-        indicator.textContent = `${peerName} is typing...`;
-        indicator.style.display = 'block';
+    if (!indicator) return;
+    if (isTyping) {
+        activeTypers.add(name);
+    } else {
+        activeTypers.delete(name);
     }
-});
-
-socket.on('typing-stop', (peerId) => {
-    const indicator = document.getElementById('chat-typing-indicator');
-    if (indicator) {
+    if (activeTypers.size > 0) {
+        const namesArray = Array.from(activeTypers);
+        let text = '';
+        if (namesArray.length === 1) {
+            text = `<strong>${namesArray[0]}</strong> is typing`;
+        } else if (namesArray.length === 2) {
+            text = `<strong>${namesArray[0]}</strong> and <strong>${namesArray[1]}</strong> are typing`;
+        } else {
+            text = `<strong>Several people</strong> are typing`;
+        }
+        indicator.innerHTML = `
+            <div class="typing-bubble">
+                <span class="typing-dot"></span>
+                <span class="typing-dot"></span>
+                <span class="typing-dot"></span>
+            </div>
+            <span class="typing-text">${text}...</span>
+        `;
+        indicator.style.display = 'flex';
+        clearTimeout(typingDisplayTimeout);
+        typingDisplayTimeout = setTimeout(() => {
+            activeTypers.clear();
+            indicator.style.display = 'none';
+        }, 5000);
+    } else {
+        clearTimeout(typingDisplayTimeout);
         indicator.style.display = 'none';
     }
+}
+window.setPeerTyping = setPeerTyping;
+
+socket.on('typing-start', (peerId, peerName) => {
+    setPeerTyping(peerName || 'Someone', true);
+});
+
+socket.on('typing-stop', (peerId, peerName) => {
+    setPeerTyping(peerName || 'Someone', false);
 });
 
 let lastActivityReport = 0;
@@ -4243,6 +4570,10 @@ window.addEventListener('cancel-transfer', (e) => {
     }
     if (activeReceives[fileId]) {
         clearPersistedTransferArtifacts(fileId);
+        if (directStreamHandles[fileId]) {
+            try { if (directStreamHandles[fileId].writable) directStreamHandles[fileId].writable.abort(); } catch (e) { }
+            delete directStreamHandles[fileId];
+        }
         delete activeReceives[fileId];
         delete receiveBuffer[fileId];
         delete receivedChunks[fileId];
@@ -4282,7 +4613,8 @@ window.registerSocketListeners = function (socket, tabId) {
     });
     socket.on('chat-history', (history) => {
         history.forEach(msg => {
-            window.appendToChatLog(msg.senderName, msg.text, false);
+            if (msg.text == null || msg.text === '') return;
+            window.appendToChatLog(msg.senderName || 'Peer', msg.text, false);
         });
     });
     socket.on('destruction-requested', (requesterName, reqPersistentId) => {
@@ -4454,4 +4786,3 @@ function setupTabDataChannel(tabId, dc, targetId) {
 
     };
 }
-

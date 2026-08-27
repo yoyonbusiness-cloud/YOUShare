@@ -617,10 +617,10 @@ const ActivityTracker = {
 
     const hasActivity = this.hasActivity();
     const trackerBody = document.getElementById('activity-tracker-body');
-    const discoveryTab = document.getElementById('activity-tab-discovery');
-    const isDiscoveryActive = discoveryTab && discoveryTab.classList.contains('active');
+    const trackerTab = document.getElementById('activity-tab-tracker');
+    const isTrackerActive = trackerTab && trackerTab.classList.contains('active');
 
-    if (isDiscoveryActive) {
+    if (!isTrackerActive) {
       container.style.display = 'none';
       if (trackerBody) trackerBody.style.display = 'none';
       return;

@@ -75,6 +75,105 @@ window.addEventListener('DOMContentLoaded', () => {
     if (typeof ActivityTracker !== 'undefined' && ui.panels.actionSelection) {
         ActivityTracker.init(ui.panels.actionSelection);
     }
+
+    const storedName = (localStorage.getItem('ys_persistent_name') || '').toLowerCase();
+    const isOwner = storedName === 'yoyon';
+    const statsPill = document.getElementById('live-stats-pill');
+    if (isOwner && statsPill) {
+        statsPill.style.display = 'flex';
+        statsPill.style.cursor = 'pointer';
+    }
+
+    if (statsPill) {
+        statsPill.addEventListener('click', async () => {
+            const currentName = (localStorage.getItem('ys_persistent_name') || '').toLowerCase();
+            if (currentName !== 'yoyon') return;
+            const token = localStorage.getItem('ys_admin_token') || '';
+            const modal = document.getElementById('admin-inbox-modal');
+            const listEl = document.getElementById('admin-inbox-list');
+            const closeBtn = document.getElementById('admin-inbox-close');
+            const clearAllBtn = document.getElementById('admin-inbox-clear-all');
+            if (!modal) return;
+            modal.style.display = 'flex';
+            if (closeBtn) closeBtn.onclick = () => { modal.style.display = 'none'; };
+            modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+
+            if (clearAllBtn) {
+                clearAllBtn.onclick = async () => {
+                    if (!confirm('Delete all feedback submissions?')) return;
+                    try {
+                        const res = await fetch('/api/feedback', {
+                            method: 'DELETE',
+                            headers: { 'Authorization': 'Bearer ' + token }
+                        });
+                        if (res.ok && listEl) {
+                            listEl.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; text-align:center; padding:1.5rem 0;">No submissions yet.</p>';
+                        }
+                    } catch (e) { }
+                };
+            }
+
+            if (listEl) listEl.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; text-align:center; padding:1.5rem 0;">Loading submissions...</p>';
+            try {
+                const res = await fetch('/api/feedback', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (res.ok) {
+                    const entries = await res.json();
+                    if (listEl) {
+                        if (!entries.length) {
+                            listEl.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; text-align:center; padding:1.5rem 0;">No submissions yet.</p>';
+                        } else {
+                            listEl.innerHTML = entries.map(e => {
+                                const date = new Date(e.createdAt).toLocaleString();
+                                return '<div id="feedback-card-' + e.id + '" style="background:var(--card-elevated); border:1px solid var(--card-border); border-radius:10px; padding:1rem; transition:opacity 0.25s ease, transform 0.25s ease;">' +
+                                    '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">' +
+                                    '<div style="display:flex; align-items:center; gap:0.5rem;">' +
+                                    '<span style="font-weight:700; font-size:0.85rem; color:var(--text-pure);">' + (e.senderName || 'Anonymous') + '</span>' +
+                                    '<span style="font-size:0.7rem; padding:0.15rem 0.45rem; border-radius:6px; background:rgba(255,255,255,0.06); color:var(--text-muted); text-transform:uppercase;">' + (e.type || 'bug') + '</span>' +
+                                    '</div>' +
+                                    '<div style="display:flex; align-items:center; gap:0.6rem;">' +
+                                    '<span style="font-size:0.72rem; color:var(--text-muted);">' + date + '</span>' +
+                                    '<button class="btn-icon dismiss-feedback-btn" data-id="' + e.id + '" title="Dismiss report" style="color:var(--text-muted); width:24px; height:24px; display:flex; align-items:center; justify-content:center; cursor:pointer; border:none; background:transparent;"><i class="fa-solid fa-trash-can" style="font-size:0.75rem;"></i></button>' +
+                                    '</div>' +
+                                    '</div>' +
+                                    '<p style="font-size:0.88rem; color:var(--text-secondary); margin:0 0 0.4rem; white-space:pre-wrap; word-break:break-word;">' + e.message + '</p>' +
+                                    (e.contact ? '<span style="font-size:0.75rem; color:var(--accent-emerald);">' + e.contact + '</span>' : '') +
+                                    '</div>';
+                            }).join('');
+
+                            listEl.querySelectorAll('.dismiss-feedback-btn').forEach(btn => {
+                                btn.addEventListener('click', async () => {
+                                    const fid = btn.dataset.id;
+                                    const card = document.getElementById('feedback-card-' + fid);
+                                    if (card) {
+                                        card.style.opacity = '0';
+                                        card.style.transform = 'scale(0.95)';
+                                        setTimeout(() => {
+                                            card.remove();
+                                            if (!listEl.children.length) {
+                                                listEl.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; text-align:center; padding:1.5rem 0;">No submissions yet.</p>';
+                                            }
+                                        }, 250);
+                                    }
+                                    try {
+                                        await fetch('/api/feedback/' + fid, {
+                                            method: 'DELETE',
+                                            headers: { 'Authorization': 'Bearer ' + token }
+                                        });
+                                    } catch (e) { }
+                                });
+                            });
+                        }
+                    }
+                } else {
+                    if (listEl) listEl.innerHTML = '<p style="color:var(--accent-danger); font-size:0.85rem; text-align:center; padding:1.5rem 0;">Access Denied.</p>';
+                }
+            } catch (err) {
+                if (listEl) listEl.innerHTML = '<p style="color:var(--accent-danger); font-size:0.85rem; text-align:center; padding:1.5rem 0;">Failed to load inbox.</p>';
+            }
+        });
+    }
 });
 
 
@@ -159,29 +258,70 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('tracker-discovery-search');
     const browseBtn = document.getElementById('browse-public-rooms-btn');
 
-    if (trackerTab && discoveryTab) {
-        trackerTab.addEventListener('click', () => {
-            trackerTab.classList.add('active');
-            trackerTab.style.borderBottom = '2px solid var(--accent-emerald)';
-            trackerTab.style.color = '';
-            discoveryTab.classList.remove('active');
-            discoveryTab.style.borderBottom = '';
-            discoveryTab.style.color = 'var(--text-secondary)';
-            if (trackerBody) trackerBody.style.display = '';
-            if (discoveryBody) discoveryBody.style.display = 'none';
-        });
+    const nearbyTab = document.getElementById('activity-tab-nearby');
+    const nearbyBody = document.getElementById('activity-nearby-body');
 
+    function selectTab(activeBtn, activeBody) {
+        [trackerTab, nearbyTab, discoveryTab].forEach(btn => {
+            if (btn) {
+                btn.classList.remove('active');
+                btn.style.borderBottom = '';
+                btn.style.color = 'var(--text-secondary)';
+            }
+        });
+        [trackerBody, nearbyBody, discoveryBody].forEach(body => {
+            if (body) body.style.display = 'none';
+        });
+        const actContainer = document.querySelector('.activity-tracker-container');
+        if (actContainer) {
+            actContainer.style.display = (activeBtn === trackerTab && typeof ActivityTracker !== 'undefined' && ActivityTracker.hasActivity()) ? 'flex' : 'none';
+        }
+        if (activeBtn) {
+            activeBtn.classList.add('active');
+            activeBtn.style.borderBottom = '2px solid var(--accent-emerald)';
+            activeBtn.style.color = '';
+        }
+        if (activeBody) {
+            if (activeBtn === trackerTab && typeof ActivityTracker !== 'undefined' && ActivityTracker.hasActivity()) {
+                activeBody.style.display = 'none';
+            } else {
+                activeBody.style.display = 'block';
+            }
+        }
+    }
+
+    if (trackerTab) {
+        trackerTab.addEventListener('click', () => {
+            selectTab(trackerTab, trackerBody);
+            if (typeof ActivityTracker !== 'undefined') ActivityTracker.renderPanel();
+        });
+    }
+
+    if (nearbyTab) {
+        nearbyTab.addEventListener('click', () => {
+            selectTab(nearbyTab, nearbyBody);
+            announceNearbyPresence();
+        });
+    }
+
+    if (discoveryTab) {
         discoveryTab.addEventListener('click', () => {
-            discoveryTab.classList.add('active');
-            discoveryTab.style.borderBottom = '2px solid var(--accent-emerald)';
-            discoveryTab.style.color = '';
-            trackerTab.classList.remove('active');
-            trackerTab.style.borderBottom = '';
-            trackerTab.style.color = 'var(--text-secondary)';
-            if (discoveryBody) discoveryBody.style.display = '';
-            if (trackerBody) trackerBody.style.display = 'none';
+            selectTab(discoveryTab, discoveryBody);
             loadPublicRooms();
             renderPublicRoomsList(window._cachedPublicRooms || []);
+        });
+    }
+
+    announceNearbyPresence();
+    setInterval(() => {
+        announceNearbyPresence();
+    }, 15000);
+
+    const directDiskInput = document.getElementById('settings-direct-disk');
+    if (directDiskInput) {
+        directDiskInput.checked = localStorage.getItem('emit-direct-disk') === 'true';
+        directDiskInput.addEventListener('change', () => {
+            localStorage.setItem('emit-direct-disk', directDiskInput.checked ? 'true' : 'false');
         });
     }
 
@@ -204,7 +344,345 @@ document.addEventListener('DOMContentLoaded', () => {
             publicDetails.style.display = publicCheckbox.checked ? 'block' : 'none';
         });
     }
+
+    initNearbyDiscoveryClient();
+    initFeedbackModal();
 });
+
+function initFeedbackModal() {
+    const toggleBtn = document.getElementById('feedback-toggle-btn');
+    const modal = document.getElementById('feedback-modal');
+    const closeBtn = document.getElementById('feedback-modal-close');
+    const cancelBtn = document.getElementById('feedback-cancel-btn');
+    const submitBtn = document.getElementById('feedback-submit-btn');
+    const typeSelect = document.getElementById('feedback-type');
+    const messageInput = document.getElementById('feedback-message');
+
+    if (!modal) return;
+
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+            modal.style.display = 'flex';
+            if (messageInput) {
+                messageInput.value = '';
+                messageInput.focus();
+            }
+        });
+    }
+
+    if (closeBtn) closeBtn.addEventListener('click', () => { modal.style.display = 'none'; });
+    if (cancelBtn) cancelBtn.addEventListener('click', () => { modal.style.display = 'none'; });
+
+    if (submitBtn) {
+        submitBtn.addEventListener('click', async () => {
+            const message = messageInput ? messageInput.value.trim() : '';
+            if (!message) {
+                showToast('Input Required', 'Please enter a message or description.', 'warning');
+                return;
+            }
+            const type = typeSelect ? typeSelect.value : 'bug';
+            const senderName = localStorage.getItem('ys_persistent_name') || 'Anonymous';
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Sending...';
+
+            try {
+                const res = await fetch('/api/feedback', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type, message, senderName })
+                });
+                const data = await res.json();
+                if (res.ok && data.ok) {
+                    modal.style.display = 'none';
+                    showToast('Sent', 'Your report was sent to Yoyon.', 'success');
+                    if (messageInput) messageInput.value = '';
+                } else {
+                    showToast('Error', data.error || 'Failed to submit report.', 'error');
+                }
+            } catch (err) {
+                showToast('Network Error', 'Could not send report to server.', 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Send to Admin';
+            }
+        });
+    }
+}
+
+
+
+window.showSecurityWarningModal = function (filename, onProceed, onCancel) {
+    const modal = document.getElementById('security-warning-modal');
+    const proceedBtn = document.getElementById('security-proceed-btn');
+    const cancelBtn = document.getElementById('security-cancel-btn');
+    if (!modal) {
+        if (onProceed) onProceed();
+        return;
+    }
+    modal.style.display = 'flex';
+    if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+
+    proceedBtn.onclick = () => {
+        modal.style.display = 'none';
+        if (onProceed) onProceed();
+    };
+    cancelBtn.onclick = () => {
+        modal.style.display = 'none';
+        if (onCancel) onCancel();
+    };
+};
+
+let _cachedNearbyPeers = [];
+let _nearbyTargetPeerId = null;
+let _nearbyPendingFiles = null;
+
+function announceNearbyPresence() {
+    if (typeof socket === 'undefined' || !socket.emit) return;
+    const name = localStorage.getItem('ys_persistent_name') || 'Device-' + Math.floor(1000 + Math.random() * 9000);
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const deviceType = isMobile ? 'mobile' : 'desktop';
+    const directToDiskSupported = typeof window.showSaveFilePicker === 'function';
+
+    socket.emit('nearby-announce', {
+        name,
+        deviceType,
+        directToDiskSupported
+    });
+}
+
+function renderNearbyList(peers) {
+    const listEl = document.getElementById('nearby-devices-list');
+    if (!listEl) return;
+    _cachedNearbyPeers = peers || [];
+
+    if (!_cachedNearbyPeers.length) {
+        listEl.innerHTML = '<p style="color:var(--text-muted); font-size:0.85rem; text-align:center; padding:1rem 0;">No other devices detected on this network yet.<br><span style="font-size:0.75rem; color:var(--text-muted);">Open Emit on another device on the same Wi-Fi.</span></p>';
+        return;
+    }
+
+    listEl.innerHTML = _cachedNearbyPeers.map(p => {
+        const icon = p.deviceType === 'mobile' ? 'fa-mobile-screen' : 'fa-laptop';
+        return `
+        <div style="background:rgba(255,255,255,0.025); border:1px solid rgba(255,255,255,0.06); border-radius:12px; padding:0.75rem 0.85rem; display:flex; flex-direction:column; gap:0.65rem; transition:background 0.15s, border-color 0.15s;"
+             onmouseenter="this.style.background='rgba(255,255,255,0.04)'; this.style.borderColor='rgba(255,255,255,0.12)'"
+             onmouseleave="this.style.background='rgba(255,255,255,0.025)'; this.style.borderColor='rgba(255,255,255,0.06)'">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem;">
+                <div style="display:flex; align-items:center; gap:0.75rem; min-width:0;">
+                    <div style="width:34px; height:34px; border-radius:50%; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); display:flex; align-items:center; justify-content:center; color:var(--text-secondary); flex-shrink:0;">
+                        <i class="fa-solid ${icon}" style="font-size:0.85rem;"></i>
+                    </div>
+                    <div style="min-width:0;">
+                        <div style="font-weight:700; font-size:0.88rem; color:var(--text-pure); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${p.name}</div>
+                        <div style="font-size:0.72rem; color:var(--text-muted);">Same Wi-Fi • Ready to receive</div>
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex; gap:0.5rem;">
+                <button class="btn-pill btn-ghost btn-sm" style="flex:1; font-size:0.72rem; padding:0.4rem 0.5rem; border:1px solid rgba(255,255,255,0.08); background:rgba(255,255,255,0.03); color:var(--text-primary); font-weight:600; display:flex; align-items:center; justify-content:center; gap:0.4rem; cursor:pointer; border-radius:8px; transition:all 0.15s;"
+                        onmouseenter="this.style.background='rgba(255,255,255,0.08)'; this.style.borderColor='rgba(255,255,255,0.2)';"
+                        onmouseleave="this.style.background='rgba(255,255,255,0.03)'; this.style.borderColor='rgba(255,255,255,0.08)';"
+                        onclick="startNearbyTransferWithMode('${p.id}', 'hosted')">
+                    <i class="fa-solid fa-cloud-arrow-down" style="font-size:0.72rem; color:var(--text-muted);"></i>
+                    <span>Hosted Link</span>
+                </button>
+                <button class="btn-pill btn-ghost btn-sm" style="flex:1; font-size:0.72rem; padding:0.4rem 0.5rem; border:1px solid rgba(255,255,255,0.08); background:rgba(255,255,255,0.03); color:var(--text-primary); font-weight:600; display:flex; align-items:center; justify-content:center; gap:0.4rem; cursor:pointer; border-radius:8px; transition:all 0.15s;"
+                        onmouseenter="this.style.background='rgba(255,255,255,0.08)'; this.style.borderColor='rgba(255,255,255,0.2)';"
+                        onmouseleave="this.style.background='rgba(255,255,255,0.03)'; this.style.borderColor='rgba(255,255,255,0.08)';"
+                        onclick="startNearbyTransferWithMode('${p.id}', 'p2p')">
+                    <i class="fa-solid fa-arrows-split-up-and-left" style="font-size:0.72rem; color:var(--text-muted);"></i>
+                    <span>P2P Room</span>
+                </button>
+            </div>
+        </div>
+        `;
+    }).join('');
+}
+
+let _nearbySelectedMode = 'hosted';
+
+function startNearbyTransferWithMode(peerId, mode) {
+    _nearbyTargetPeerId = peerId;
+    _nearbySelectedMode = mode;
+    const picker = document.getElementById('nearby-file-picker');
+    if (picker) {
+        picker.value = '';
+        picker.click();
+    }
+}
+
+function initNearbyDiscoveryClient() {
+    if (typeof socket === 'undefined') return;
+
+    socket.on('nearby-peers-list', (peers) => {
+        renderNearbyList(peers);
+    });
+
+    socket.on('nearby-peer-joined', (peer) => {
+        const existing = _cachedNearbyPeers.find(p => p.id === peer.id);
+        if (!existing) {
+            _cachedNearbyPeers.push(peer);
+            renderNearbyList(_cachedNearbyPeers);
+            showToast('Nearby Device Found', `${peer.name} is now visible on this network.`, 'info');
+        }
+    });
+
+    socket.on('nearby-peer-left', (peerId) => {
+        _cachedNearbyPeers = _cachedNearbyPeers.filter(p => p.id !== peerId);
+        renderNearbyList(_cachedNearbyPeers);
+    });
+
+    socket.on('nearby-incoming-request', ({ fromSocketId, fromName, fileManifest, autoRoomCode }) => {
+        const modal = document.getElementById('nearby-request-modal');
+        const senderEl = document.getElementById('nearby-sender-name');
+        const countEl = document.getElementById('nearby-file-count');
+        const listEl = document.getElementById('nearby-request-file-list');
+        const acceptBtn = document.getElementById('nearby-accept-btn');
+        const rejectBtn = document.getElementById('nearby-reject-btn');
+
+        if (!modal) return;
+        if (senderEl) senderEl.textContent = fromName;
+        if (countEl) countEl.textContent = `${fileManifest.length} ${fileManifest.length === 1 ? 'file' : 'files'}`;
+        if (listEl) {
+            listEl.innerHTML = fileManifest.map(f => `<div style="padding:0.2rem 0; display:flex; justify-content:space-between;"><span>${f.name}</span><span style="color:var(--text-muted);">${formatBytes(f.size)}</span></div>`).join('');
+        }
+
+        modal.style.display = 'flex';
+        if (typeof playProceduralSound === 'function') playProceduralSound('chime');
+
+        acceptBtn.onclick = () => {
+            modal.style.display = 'none';
+            socket.emit('nearby-accept-request', { fromSocketId, autoRoomCode });
+        };
+
+        rejectBtn.onclick = () => {
+            modal.style.display = 'none';
+            socket.emit('nearby-reject-request', { fromSocketId });
+        };
+    });
+
+    socket.on('nearby-pair-ready', ({ autoRoomCode }) => {
+
+        if (typeof joinRoom === 'function') {
+            joinRoom(autoRoomCode, '', false);
+        }
+    });
+
+    socket.on('nearby-request-accepted', ({ autoRoomCode }) => {
+
+        if (typeof joinRoom === 'function') {
+            joinRoom(autoRoomCode, '', true);
+        }
+        if (_nearbyPendingFiles && _nearbyPendingFiles.length) {
+            const filesToSend = [..._nearbyPendingFiles];
+            _nearbyPendingFiles = null;
+            let attempts = 0;
+            const checkAndSend = () => {
+                attempts++;
+                if (typeof peers !== 'undefined' && Object.values(peers).length > 0 && typeof handleFiles === 'function') {
+                    handleFiles(filesToSend);
+                } else if (attempts < 20) {
+                    setTimeout(checkAndSend, 300);
+                } else if (typeof handleFiles === 'function') {
+                    handleFiles(filesToSend);
+                }
+            };
+            setTimeout(checkAndSend, 500);
+        }
+    });
+
+    socket.on('nearby-request-rejected', ({ fromName }) => {
+        showToast('Transfer Declined', `${fromName} declined the transfer request.`, 'warning');
+        _nearbyPendingFiles = null;
+    });
+
+    socket.on('nearby-request-failed', (msg) => {
+        showToast('Transfer Error', msg, 'error');
+        _nearbyPendingFiles = null;
+    });
+
+    socket.on('nearby-incoming-hosted-file', ({ fromName, dropUrl, filename, size }) => {
+        const modal = document.getElementById('nearby-hosted-request-modal');
+        const senderEl = document.getElementById('nearby-hosted-sender-name');
+        const nameEl = document.getElementById('nearby-hosted-filename');
+        const sizeEl = document.getElementById('nearby-hosted-filesize');
+        const acceptBtn = document.getElementById('nearby-hosted-accept-btn');
+        const rejectBtn = document.getElementById('nearby-hosted-reject-btn');
+
+        if (!modal) {
+            showToast('Incoming File', `${fromName} sent you "${filename}" (${formatBytes(size)}).`, 'success');
+            return;
+        }
+
+        if (senderEl) senderEl.textContent = fromName;
+        if (nameEl) nameEl.textContent = filename;
+        if (sizeEl) sizeEl.textContent = formatBytes(size);
+
+        modal.style.display = 'flex';
+        if (typeof playProceduralSound === 'function') playProceduralSound('chime');
+
+        acceptBtn.onclick = () => {
+            modal.style.display = 'none';
+            window.location.href = dropUrl;
+        };
+
+        rejectBtn.onclick = () => {
+            modal.style.display = 'none';
+        };
+    });
+
+    const picker = document.getElementById('nearby-file-picker');
+
+    if (picker) {
+        picker.addEventListener('change', async (e) => {
+            if (!e.target.files || !e.target.files.length || !_nearbyTargetPeerId) return;
+            const files = Array.from(e.target.files);
+            const targetSocketId = _nearbyTargetPeerId;
+            const mode = _nearbySelectedMode;
+
+            if (mode === 'p2p') {
+                _nearbyPendingFiles = files;
+                const manifest = files.map(f => ({ name: f.name, size: f.size, type: f.type }));
+
+                socket.emit('nearby-send-request', targetSocketId, manifest);
+            } else {
+                const file = files[0];
+                const isCollection = files.length > 1;
+
+
+
+                try {
+                    let dropResult;
+                    if (isCollection) {
+                        dropResult = await hostedDropCollection(files, (status, pct) => {
+
+                        });
+                    } else {
+                        dropResult = await hostedDrop(file, (status, pct) => {
+
+                        });
+                    }
+
+                    if (dropResult && dropResult.url) {
+                        socket.emit('nearby-send-hosted-file', {
+                            targetSocketId,
+                            dropUrl: dropResult.url,
+                            filename: isCollection ? `${files.length} files (Archive)` : file.name,
+                            size: isCollection ? files.reduce((acc, f) => acc + f.size, 0) : file.size,
+                            token: dropResult.token
+                        });
+
+                    }
+                } catch (err) {
+                    console.error(err);
+                    showToast('Upload Error', err.message || 'Failed to upload hosted file.', 'error');
+                }
+            }
+        });
+    }
+
+    announceNearbyPresence();
+}
 
 function getVisiblePeerCount() {
     const peerItems = document.querySelectorAll('#peer-list .peer-item:not(.local-user)');
@@ -220,9 +698,15 @@ function hasConnectedPeers() {
 
 function showScreen(screenName) {
     Object.values(ui.screens).forEach(screen => {
-        screen.classList.remove('active');
+        if (screen) {
+            screen.classList.remove('active');
+            screen.classList.remove('screen-enter');
+        }
     });
-    ui.screens[screenName].classList.add('active');
+    if (ui.screens[screenName]) {
+        ui.screens[screenName].classList.add('active');
+        ui.screens[screenName].classList.add('screen-enter');
+    }
 }
 
 const auditConsole = document.getElementById('audit-console');
@@ -439,9 +923,220 @@ function getHostedModalElements() {
         zipNameInput: document.getElementById('drop-name-input'),
         hoursInput: document.getElementById('drop-hours'),
         minutesInput: document.getElementById('drop-minutes'),
-        nicknameInput: document.getElementById('drop-nickname-input')
+        nicknameInput: document.getElementById('drop-nickname-input'),
+        burnCheckbox: document.getElementById('drop-burn-checkbox'),
+        canaryCheckbox: document.getElementById('canary-ping-checkbox'),
+        decoyCheckbox: document.getElementById('decoy-trap-checkbox'),
+        timedWindowCheckbox: document.getElementById('timed-window-checkbox'),
+        timedWindowInputs: document.getElementById('timed-window-inputs'),
+        timedWindowStart: document.getElementById('timed-window-start'),
+        timedWindowEnd: document.getElementById('timed-window-end')
     };
 }
+
+function updateAdminAccessControlsVisibility() {
+    const savedUser = (localStorage.getItem('emit-username') || localStorage.getItem('p2p-username') || '').toLowerCase();
+    const isAdmin = localStorage.getItem('emit-admin-mode') === 'true' || savedUser === 'yoyon';
+    const adminControls = document.getElementById('admin-access-controls');
+    const adminBadge = document.getElementById('access-admin-badge');
+    if (adminControls) adminControls.style.display = isAdmin ? 'flex' : 'none';
+    if (adminBadge) {
+        adminBadge.style.display = isAdmin ? 'inline-block' : 'none';
+        adminBadge.textContent = savedUser === 'yoyon' ? 'Admin: yoyon' : 'Admin Mode';
+    }
+}
+
+function initCustomTimePickers() {
+    let activeOverlay = null;
+
+    function format12h(h24, m) {
+        const period = h24 >= 12 ? 'PM' : 'AM';
+        let h12 = h24 % 12;
+        if (h12 === 0) h12 = 12;
+        return `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${period}`;
+    }
+
+    function parseTo24(val) {
+        if (!val) return { h: 9, m: 0 };
+        const parts = val.split(':');
+        return {
+            h: parseInt(parts[0], 10) || 0,
+            m: parseInt(parts[1], 10) || 0
+        };
+    }
+
+    function closePopover() {
+        if (activeOverlay) {
+            activeOverlay.remove();
+            activeOverlay = null;
+        }
+    }
+
+    const targetInputs = document.querySelectorAll('#timed-window-start, #timed-window-end, #recurring-open-time, #recurring-close-time, input[type="time"]');
+
+    targetInputs.forEach(input => {
+        if (input.dataset.customTimeInit) return;
+        input.dataset.customTimeInit = 'true';
+        input.type = 'text';
+        input.readOnly = true;
+        input.classList.add('custom-time-input-trigger');
+
+        const updateDisplay = () => {
+            const raw = input.dataset.rawTime || '09:00';
+            const { h, m } = parseTo24(raw);
+            input.setAttribute('value', format12h(h, m));
+        };
+
+        const initialVal = input.getAttribute('value') || input.value || (input.id.includes('end') ? '17:00' : '09:00');
+        input.dataset.rawTime = initialVal;
+
+        Object.defineProperty(input, 'value', {
+            get() {
+                return this.dataset.rawTime || '';
+            },
+            set(val) {
+                this.dataset.rawTime = val || '';
+                updateDisplay();
+            },
+            configurable: true
+        });
+
+        updateDisplay();
+
+        input.addEventListener('click', (e) => {
+            e.stopPropagation();
+            closePopover();
+
+            const raw = input.dataset.rawTime || '09:00';
+            let { h, m } = parseTo24(raw);
+            let period = h >= 12 ? 'PM' : 'AM';
+            let h12 = h % 12 === 0 ? 12 : h % 12;
+
+            const overlay = document.createElement('div');
+            overlay.className = 'custom-time-modal-overlay';
+
+            const popover = document.createElement('div');
+            popover.className = 'custom-time-popover';
+            overlay.appendChild(popover);
+
+            overlay.addEventListener('click', (ev) => {
+                if (ev.target === overlay) closePopover();
+            });
+
+            function render() {
+                const h24 = period === 'PM' ? (h12 === 12 ? 12 : h12 + 12) : (h12 === 12 ? 0 : h12);
+                const time24Str = `${String(h24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                input.dataset.rawTime = time24Str;
+                updateDisplay();
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+
+                popover.innerHTML = `
+                    <div class="time-pop-header">
+                        <div style="display:flex; align-items:center; gap:0.4rem;">
+                            <i class="fa-solid fa-clock" style="color:var(--accent-emerald); font-size:0.95rem;"></i>
+                            <span style="font-size:0.8rem; font-weight:700; color:var(--text-muted); text-transform:uppercase;">Select Time</span>
+                        </div>
+                        <span class="time-pop-display">${format12h(h24, m)}</span>
+                    </div>
+                    <div class="time-pop-columns">
+                        <div class="time-pop-col">
+                            ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(num => `
+                                <div class="time-pop-item ${h12 === num ? 'active' : ''}" data-hour="${num}">
+                                    ${String(num).padStart(2, '0')}
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="time-pop-col">
+                            ${[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map(min => `
+                                <div class="time-pop-item ${m === min ? 'active' : ''}" data-min="${min}">
+                                    ${String(min).padStart(2, '0')}
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="time-pop-col">
+                            <div class="time-pop-item ${period === 'AM' ? 'active' : ''}" data-period="AM">AM</div>
+                            <div class="time-pop-item ${period === 'PM' ? 'active' : ''}" data-period="PM">PM</div>
+                        </div>
+                    </div>
+                    <div class="time-pop-presets">
+                        <span class="time-preset-pill" data-set="09:00">9:00 AM</span>
+                        <span class="time-preset-pill" data-set="12:00">12:00 PM</span>
+                        <span class="time-preset-pill" data-set="17:00">5:00 PM</span>
+                        <span class="time-preset-pill" data-set="21:00">9:00 PM</span>
+                        <span class="time-preset-pill" data-set="now">Now</span>
+                    </div>
+                    <div style="margin-top:0.75rem;">
+                        <button class="btn-pill btn-primary btn-sm" id="time-pop-done-btn" style="width:100%; padding:0.5rem; font-size:0.85rem;">Done</button>
+                    </div>
+                `;
+
+                popover.querySelectorAll('[data-hour]').forEach(item => {
+                    item.onclick = (ev) => {
+                        ev.stopPropagation();
+                        h12 = parseInt(item.dataset.hour, 10);
+                        render();
+                    };
+                });
+                popover.querySelectorAll('[data-min]').forEach(item => {
+                    item.onclick = (ev) => {
+                        ev.stopPropagation();
+                        m = parseInt(item.dataset.min, 10);
+                        render();
+                    };
+                });
+                popover.querySelectorAll('[data-period]').forEach(item => {
+                    item.onclick = (ev) => {
+                        ev.stopPropagation();
+                        period = item.dataset.period;
+                        render();
+                    };
+                });
+                popover.querySelectorAll('[data-set]').forEach(item => {
+                    item.onclick = (ev) => {
+                        ev.stopPropagation();
+                        if (item.dataset.set === 'now') {
+                            const now = new Date();
+                            h = now.getHours();
+                            m = Math.floor(now.getMinutes() / 5) * 5;
+                        } else {
+                            const parsed = parseTo24(item.dataset.set);
+                            h = parsed.h;
+                            m = parsed.m;
+                        }
+                        period = h >= 12 ? 'PM' : 'AM';
+                        h12 = h % 12 === 0 ? 12 : h % 12;
+                        render();
+                    };
+                });
+                const doneBtn = popover.querySelector('#time-pop-done-btn');
+                if (doneBtn) {
+                    doneBtn.onclick = (ev) => {
+                        ev.stopPropagation();
+                        closePopover();
+                    };
+                }
+            }
+
+            render();
+            document.body.appendChild(overlay);
+            activeOverlay = overlay;
+        });
+    });
+}
+window.initCustomTimePickers = initCustomTimePickers;
+
+document.addEventListener('DOMContentLoaded', () => {
+    updateAdminAccessControlsVisibility();
+    initCustomTimePickers();
+    const timedCb = document.getElementById('timed-window-checkbox');
+    const timedInputs = document.getElementById('timed-window-inputs');
+    if (timedCb && timedInputs) {
+        timedCb.addEventListener('change', () => {
+            timedInputs.style.display = timedCb.checked ? 'flex' : 'none';
+        });
+    }
+});
 
 function formatHostedSelection(files) {
     if (!files.length) return 'Nothing selected yet.';
@@ -615,13 +1310,50 @@ async function buildHostedUploadFile(files) {
     }
 }
 
+async function steganographicWatermark(file) {
+    return new Promise((resolve) => {
+        const imgTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+        if (!imgTypes.includes(file.type)) { resolve(file); return; }
+        const username = localStorage.getItem('ys_persistent_name') || 'unknown';
+        const stamp = `EMIT_WM:${username}:${Date.now()}`;
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            URL.revokeObjectURL(url);
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const d = imgData.data;
+            const bits = [];
+            for (let i = 0; i < stamp.length; i++) {
+                const c = stamp.charCodeAt(i);
+                for (let b = 7; b >= 0; b--) bits.push((c >> b) & 1);
+            }
+            for (let i = 0; i < 8; i++) bits.push(0);
+            for (let i = 0; i < bits.length && i * 4 < d.length; i++) {
+                d[i * 4] = (d[i * 4] & 0xFE) | bits[i];
+            }
+            ctx.putImageData(imgData, 0, 0);
+            canvas.toBlob((blob) => {
+                if (!blob) { resolve(file); return; }
+                resolve(new File([blob], file.name, { type: 'image/png', lastModified: file.lastModified }));
+            }, 'image/png');
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+        img.src = url;
+    });
+}
+
 async function startHostedUpload(files) {
     if (!files.length) {
         showToast('No Files', 'Choose at least one file first.', 'warning');
         return;
     }
 
-    const { modal, form, progress, result, resultUrl, waitBtn, closeResultBtn, progressLabel, pctDisplay, ring, progressFile, hoursInput, minutesInput, nicknameInput } = getHostedModalElements();
+    const { modal, form, progress, result, resultUrl, waitBtn, closeResultBtn, progressLabel, pctDisplay, ring, progressFile, hoursInput, minutesInput, nicknameInput, burnCheckbox, canaryCheckbox, decoyCheckbox, timedWindowCheckbox, timedWindowStart, timedWindowEnd } = getHostedModalElements();
     const hours = Math.max(0, Math.min(48, parseInt(hoursInput?.value || '0', 10) || 0));
     const minutes = Math.max(0, Math.min(59, parseInt(minutesInput?.value || '0', 10) || 0));
     const expiryMs = ((hours * 60) + minutes) * 60 * 1000;
@@ -631,6 +1363,13 @@ async function startHostedUpload(files) {
     }
 
     const nickname = (nicknameInput?.value || '').trim();
+    const burnOnDownload = !!burnCheckbox?.checked;
+    const canaryPing = !!canaryCheckbox?.checked;
+    const decoyTrap = !!decoyCheckbox?.checked;
+    const timedWindowEnabled = !!timedWindowCheckbox?.checked;
+    const accessWindowStart = timedWindowEnabled ? (timedWindowStart?.value || '') : '';
+    const accessWindowEnd = timedWindowEnabled ? (timedWindowEnd?.value || '') : '';
+    const dropOptions = { burnOnDownload, canaryPing, decoyTrap, accessWindowStart, accessWindowEnd };
 
     const token = createHostedClientToken();
     const initialNames = files.map(file => file?.name).filter(Boolean);
@@ -726,7 +1465,7 @@ async function startHostedUpload(files) {
                     if (typeof ActivityTracker !== 'undefined') {
                         ActivityTracker.updateHostedLinkProgress(token, totalUploadedPct);
                     }
-                }, expiryMs, '', { skipActivity: true });
+                }, expiryMs, '', { skipActivity: true, ...dropOptions });
 
                 uploadedFiles.push({
                     name: file.name,
@@ -761,7 +1500,8 @@ async function startHostedUpload(files) {
                 token,
                 totalSize: prepared.totalSize,
                 isCollection: true,
-                skipActivity: true
+                skipActivity: true,
+                ...dropOptions
             });
         } else {
             if (window.cacheHostedFile) {
@@ -782,7 +1522,8 @@ async function startHostedUpload(files) {
                 token,
                 totalSize: prepared.totalSize,
                 isCollection: prepared.isCollection,
-                skipActivity: true
+                skipActivity: true,
+                ...dropOptions
             });
         }
 
@@ -799,63 +1540,7 @@ async function startHostedUpload(files) {
         localStorage.setItem('emit-active-hosted-url', resultData.url);
         setHostedModalCopyHandlers(resultData.url);
 
-        const myProfile = (() => { try { return JSON.parse(localStorage.getItem('emit-my-profile') || 'null'); } catch { return null; } })();
-        if (myProfile && myProfile.username && myProfile.token && result) {
-            const existingShareRow = result.querySelector('.profile-share-row');
-            if (!existingShareRow) {
-                const shareRow = document.createElement('div');
-                shareRow.className = 'profile-share-row';
-                shareRow.style.cssText = 'margin-top:1rem; display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;';
-                const foreverLabel = myProfile.isAllowedForever
-                    ? `<label style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;color:var(--text-secondary);cursor:pointer;">
-                        <input type="checkbox" id="share-forever-check"> <i class="fa-solid fa-infinity" style="color:var(--accent-emerald);"></i> Keep Forever
-                       </label>`
-                    : '';
-                shareRow.innerHTML = `
-                    ${foreverLabel}
-                    <button id="share-to-profile-btn" style="display:inline-flex;align-items:center;gap:0.4rem;background:var(--btn-ghost-bg);border:1px solid var(--btn-ghost-border);color:var(--text-secondary);font-weight:700;font-size:0.8rem;border-radius:999px;padding:0.45rem 1rem;cursor:pointer;transition:all 0.15s;">
-                        <i class="fa-solid fa-user-plus"></i> Add to @${myProfile.username}
-                    </button>
-                `;
-                result.appendChild(shareRow);
 
-                const shareBtn = shareRow.querySelector('#share-to-profile-btn');
-                shareBtn.addEventListener('click', async () => {
-                    shareBtn.disabled = true;
-                    shareBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Adding...';
-                    const isForever = shareRow.querySelector('#share-forever-check')?.checked || false;
-                    const urlParams = new URLSearchParams(resultData.url.split('?')[1] || '');
-                    const fileToken = urlParams.get('t') || resultData.token;
-                    try {
-                        const res = await fetch('/api/profiles/add-upload', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                username: myProfile.username,
-                                token: myProfile.token,
-                                fileToken,
-                                filename: files?.[0]?.name || 'file',
-                                size: files?.[0]?.size || 0,
-                                mode: 'chunked',
-                                keyB64: resultData.keyB64 || '',
-                                isCollection: prepared?.isCollection || false,
-                                isForever
-                            })
-                        });
-                        const data = await res.json();
-                        if (!data.ok) throw new Error(data.error || 'Failed');
-                        shareBtn.innerHTML = '<i class="fa-solid fa-check"></i> Added to Profile!';
-                        shareBtn.style.color = 'var(--accent-emerald)';
-                        shareBtn.style.borderColor = 'var(--accent-emerald)';
-                        showToast('Added to Profile', `Visible at /@${myProfile.username}`, 'success');
-                    } catch (e) {
-                        shareBtn.disabled = false;
-                        shareBtn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Add to Profile';
-                        showToast('Error', e.message, 'error');
-                    }
-                });
-            }
-        }
 
         const closeHandler = () => closeHostedModal({ reset: true, clearActiveState: true });
         if (waitBtn) {
@@ -1242,7 +1927,8 @@ if (ui.buttons.finalJoinGenerated) {
                 if (typeof ActivityTracker.renderPanel === 'function') ActivityTracker.renderPanel();
             }
 
-            const shareUrl = `${window.location.origin}/?workspace=${currentGeneratedCode}&open=${encodeURIComponent(openTime)}&close=${encodeURIComponent(closeTime)}`;
+            const creatorTzOffset = new Date().getTimezoneOffset();
+            const shareUrl = `${window.location.origin}/?workspace=${currentGeneratedCode}&open=${encodeURIComponent(openTime)}&close=${encodeURIComponent(closeTime)}&tz=${creatorTzOffset}`;
             window.copyToClipboard(shareUrl).then(() => {
                 if (window.uiShared?.CustomDialog?.alert) {
                     window.uiShared.CustomDialog.alert('Workspace Scheduled', `Workspace ${currentGeneratedCode} has been scheduled for daily access (${openTime} - ${closeTime}).\n\nThe invite link has been copied to your clipboard. Send it to peers so they can join when active!`);
@@ -1298,7 +1984,7 @@ if (ui.buttons.finalJoinGenerated) {
         const forceSpectatorChecked = !!document.getElementById('force-spectator-checkbox')?.checked;
         window._pendingForceSpectator = forceSpectatorChecked;
 
-        if (currentGeneratedCode && typeof joinRoom === 'function') {
+        if (currentGeneratedCode && typeof joinRoom === 'function' && e.target && e.target.id === 'final-join-generated-btn') {
             joinRoom(currentGeneratedCode, secret, true);
         }
     });
@@ -1763,7 +2449,8 @@ if (ui.buttons.promptSecretSubmit) {
         window._secretPromptAttempted = true;
         ui.panels.secretPromptModal.style.display = 'none';
         if (typeof window._pendingWorkspaceId !== 'undefined' && window._pendingWorkspaceId) {
-            if (typeof joinRoom === 'function') joinRoom(window._pendingWorkspaceId, secret, window._pendingIsCreator || false);
+            // Always retry as participant (never creator) after secret-mismatch
+            if (typeof joinRoom === 'function') joinRoom(window._pendingWorkspaceId, secret, false);
         }
     });
 }
@@ -1796,7 +2483,6 @@ if (themeSelect) {
 
     themeSelect.addEventListener('change', (e) => {
         const newTheme = e.target.value;
-        document.documentElement.setAttribute('data-theme', newTheme);
         localStorage.setItem('emit-theme', newTheme);
 
         if (window._rgbInterval) {
@@ -1804,36 +2490,164 @@ if (themeSelect) {
             window._rgbInterval = null;
         }
 
+        const canvas = document.getElementById('rgb-liquid-canvas');
+        if (canvas) canvas.style.display = 'none';
+        customThemeControls.style.display = 'none';
+
+        document.documentElement.removeAttribute('style');
+        localStorage.removeItem('emit-element-paints');
+
+        document.documentElement.setAttribute('data-theme', newTheme);
+
         if (newTheme === 'rgb-spectrum') {
             if (typeof window.startRgbSpectrumEngine === 'function') {
                 window.startRgbSpectrumEngine();
             }
-        }
-
-        if (newTheme === 'custom') {
+        } else if (newTheme === 'custom') {
             customThemeControls.style.display = 'flex';
             updateCustomTheme();
             applySavedElementPaints();
-        } else {
-            customThemeControls.style.display = 'none';
-            localStorage.removeItem('emit-element-paints');
-            document.querySelectorAll('*').forEach(el => {
-                el.style.removeProperty('color');
-                el.style.removeProperty('background-color');
-                el.style.removeProperty('border-color');
-            });
+        }
 
-            const propsToRemove = [
-                '--bg-base', '--bg-grad-center', '--card-surface', '--card-elevated', '--card-border', '--audit-bg',
-                '--accent-emerald', '--btn-white-bg', '--btn-ghost-bg', '--btn-ghost-border', '--btn-ghost-hover',
-                '--text-pure', '--text-primary', '--text-secondary', '--btn-white-text'
-            ];
-            if (newTheme !== 'rgb-spectrum') {
-                propsToRemove.forEach(prop => document.documentElement.style.removeProperty(prop));
-            }
+        if (newTheme === 'lofi-night') {
+            window.showLoFiPlayer();
+        } else {
+            window.hideLoFiPlayer();
         }
     });
+
+
 }
+
+(function () {
+    var player = null;
+    var vinyl = null;
+    var playBtn = null;
+    var nextBtn = null;
+    var closeBtn = null;
+    var expandBtn = null;
+    var moodBtn = null;
+    var launcherBtn = null;
+    var volSlider = null;
+    var vinylSlider = null;
+    var rainSlider = null;
+
+    function initLoFiUI() {
+        player = document.getElementById('lofi-radio-player');
+        vinyl = document.getElementById('lofi-vinyl-disc');
+        playBtn = document.getElementById('lofi-play-btn');
+        nextBtn = document.getElementById('lofi-next-btn');
+        closeBtn = document.getElementById('lofi-close-btn');
+        expandBtn = document.getElementById('lofi-expand-btn');
+        moodBtn = document.getElementById('lofi-mood-btn');
+        launcherBtn = document.getElementById('lofi-launcher-btn');
+        volSlider = document.getElementById('lofi-vol');
+        vinylSlider = document.getElementById('lofi-vinyl-lvl');
+        rainSlider = document.getElementById('lofi-rain-lvl');
+        if (!player) return;
+
+        var savedMood = localStorage.getItem('emit-lofi-mood');
+        if (savedMood === 'pink') {
+            document.documentElement.classList.add('lofi-mood-pink');
+        }
+
+        if (launcherBtn) {
+            launcherBtn.addEventListener('click', function () {
+                window.showLoFiPlayer();
+            });
+        }
+
+        playBtn.addEventListener('click', function () {
+            if (!window.LoFiRadio) return;
+            if (window.LoFiRadio.isPlaying()) {
+                window.LoFiRadio.pause();
+                playBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
+                vinyl.classList.remove('spinning');
+            } else {
+                window.LoFiRadio.play();
+                playBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
+                vinyl.classList.add('spinning');
+            }
+        });
+
+        if (moodBtn) {
+            moodBtn.addEventListener('click', function () {
+                if (window.LoFiRadio) {
+                    var mood = window.LoFiRadio.toggleMood();
+                    if (typeof showToast === 'function') {
+                        if (mood === 'pink') {
+                            showToast('Chromatic Velvet Silk', 'Moving Violet & Magenta fluid aesthetic activated 🌸', 'info');
+                        } else {
+                            showToast('Obsidian Ice Noir', 'Moving Cyan & Noir fluid aesthetic activated ❄️', 'info');
+                        }
+                    }
+                }
+            });
+        }
+
+        if (vinyl) {
+            vinyl.addEventListener('click', function () {
+                if (window.LoFiRadio) {
+                    window.LoFiRadio.toggleMood();
+                }
+            });
+        }
+
+        nextBtn.addEventListener('click', function () {
+            if (window.LoFiRadio) window.LoFiRadio.next();
+        });
+
+        closeBtn.addEventListener('click', function () {
+            window.hideLoFiPlayer();
+        });
+
+        expandBtn.addEventListener('click', function () {
+            player.classList.toggle('expanded');
+        });
+
+        volSlider.addEventListener('input', function () {
+            if (window.LoFiRadio) window.LoFiRadio.setVolume(parseFloat(volSlider.value));
+        });
+
+        vinylSlider.addEventListener('input', function () {
+            if (window.LoFiRadio) window.LoFiRadio.setVinylLevel(parseFloat(vinylSlider.value));
+        });
+
+        rainSlider.addEventListener('input', function () {
+            if (window.LoFiRadio) window.LoFiRadio.setRainLevel(parseFloat(rainSlider.value));
+        });
+    }
+
+    window.showLoFiPlayer = function () {
+        if (!player) initLoFiUI();
+        if (!player) return;
+        player.classList.add('visible');
+        if (launcherBtn) launcherBtn.classList.remove('visible');
+        if (window.LoFiRadio) {
+            window.LoFiRadio.startRainCanvas();
+        }
+    };
+
+    window.hideLoFiPlayer = function () {
+        if (!player) return;
+        player.classList.remove('visible');
+        var curTheme = document.documentElement.getAttribute('data-theme');
+        if (launcherBtn && curTheme === 'lofi-night') {
+            launcherBtn.classList.add('visible');
+        }
+        if (window.LoFiRadio) {
+            window.LoFiRadio.stopRainCanvas();
+        }
+    };
+
+    document.addEventListener('DOMContentLoaded', function () {
+        initLoFiUI();
+        var savedTheme = localStorage.getItem('emit-theme') || 'dark';
+        if (savedTheme === 'lofi-night') {
+            window.showLoFiPlayer();
+        }
+    });
+})();
 
 function updateCustomTheme() {
     const customObj = {
@@ -2096,13 +2910,29 @@ if (settingsConfirmNameBtn) {
         const newName = nameInput.value.trim();
         if (!newName) return;
 
-        const PRIVILEGED_PATTERNS = [/yoyon/i, /yoyn/i, /yoyun/i, /yoyion/i];
+        const PRIVILEGED_PATTERNS = [/^yoyon$/i];
         const isPrivileged = PRIVILEGED_PATTERNS.some(pattern => pattern.test(newName));
 
         if (isPrivileged) {
             const pass = await window.uiShared.CustomDialog.prompt('Identity Verification', `The name "${newName}" is restricted. Enter private key to claim:`);
-            if (pass !== 'TkVI#Kef:=TXZ[sLoDnzoRI<cgxCYKcM8exe}#a??m1u=gn@<l@(!;LY#[8^>?rkn>2CfW=0tq2|c,f>Ot#|9PdiUrVE&XEjvg(O') {
-                showToast('Access Denied', 'Invalid key for this identity.', 'error');
+            if (!pass) {
+                showToast('Access Denied', 'Private key is required for restricted identity.', 'error');
+                return;
+            }
+            try {
+                const res = await fetch('/api/verify-admin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: newName, key: pass })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    showToast('Access Denied', 'Invalid key for this identity.', 'error');
+                    return;
+                }
+                localStorage.setItem('ys_admin_token', data.token);
+            } catch (e) {
+                showToast('Access Denied', 'Verification failed.', 'error');
                 return;
             }
         }
@@ -2115,6 +2945,13 @@ if (settingsConfirmNameBtn) {
 
         localStorage.setItem('ys_persistent_name', newName);
         sessionStorage.setItem('ys_user_name', newName);
+
+        const statsPill = document.getElementById('live-stats-pill');
+        if (statsPill) {
+            statsPill.style.display = isPrivileged ? 'flex' : 'none';
+            if (isPrivileged) statsPill.style.cursor = 'pointer';
+        }
+
         if (typeof socket !== 'undefined' && socket.emit) {
             socket.emit('name-change', newName);
         }
@@ -2126,6 +2963,7 @@ if (settingsConfirmNameBtn) {
         showToast('Identity Claimed', `You are now known as ${newName}.`, 'success');
     });
 }
+
 
 
 
@@ -2169,7 +3007,7 @@ window.addEventListener('keydown', async (e) => {
         }
 
         const newCode = generateSecureWorkspaceId();
-        if (typeof joinRoom === 'function') {
+        if (typeof joinRoom === 'function' && e.target && e.target.id === 'final-join-generated-btn') {
             joinRoom(newCode, secret, true);
         }
     }
@@ -2764,6 +3602,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const fileNoteCloseBtn = document.getElementById('file-note-close-btn');
+    if (fileNoteCloseBtn) {
+        fileNoteCloseBtn.addEventListener('click', () => {
+            const modal = document.getElementById('file-note-modal');
+            if (modal) modal.style.display = 'none';
+        });
+    }
+
     const streakBadge = document.getElementById('streak-badge');
     if (streakBadge) {
         streakBadge.style.cursor = 'default';
@@ -2956,6 +3802,7 @@ document.addEventListener('DOMContentLoaded', () => {
         {
             id: 'create-vault',
             title: 'Create Vault',
+
             desc: 'Generate secure workspace keys and spin up a P2P vault',
             icon: 'fa-server',
             shortcut: 'Vault',
@@ -3006,6 +3853,41 @@ document.addEventListener('DOMContentLoaded', () => {
                         window.location.href = '/h/' + fileId;
                     }
                 });
+            }
+        },
+        {
+            id: 'lofi-radio',
+            title: 'Lo-Fi Radio Player',
+            desc: 'Toggle the floating procedural vinyl Lo-Fi player',
+            icon: 'fa-compact-disc',
+            shortcut: 'Lofi',
+            action: () => {
+                window.closeCommandPalette();
+                const player = document.getElementById('lofi-radio-player');
+                if (player && player.classList.contains('visible')) {
+                    window.hideLoFiPlayer();
+                } else {
+                    document.documentElement.setAttribute('data-theme', 'lofi-night');
+                    localStorage.setItem('emit-theme', 'lofi-night');
+                    const ts = document.getElementById('settings-theme-select');
+                    if (ts) ts.value = 'lofi-night';
+                    window.showLoFiPlayer();
+                }
+            }
+        },
+        {
+            id: 'toggle-admin-controls',
+            title: 'Toggle Admin Access Controls',
+            desc: 'Enable or disable admin-only Canary Ping and Decoy Trap controls',
+            icon: 'fa-shield-halved',
+            shortcut: 'Admin',
+            action: () => {
+                window.closeCommandPalette();
+                const current = localStorage.getItem('emit-admin-mode') === 'true';
+                const next = !current;
+                localStorage.setItem('emit-admin-mode', next ? 'true' : 'false');
+                updateAdminAccessControlsVisibility();
+                showToast(next ? 'Admin Mode Enabled' : 'Admin Mode Disabled', next ? 'Canary Ping & Decoy Trap access unlocked.' : 'Admin controls hidden from transfer views.', next ? 'success' : 'info');
             }
         },
         {
@@ -3177,14 +4059,37 @@ document.addEventListener('DOMContentLoaded', () => {
             normQuery === 'what do you call an ugly stick';
         const isFried = normQuery === 'my brain is fried';
         const isCheese = normQuery === 'cheese';
+        const isDatsa = normQuery === 'mmmghghmmmm';
+        const isTwinRing = normQuery === 'ring ring';
+        const isBigTonight = normQuery === 'the big tonight';
 
-        if (isSunSet || isStick || isFried || isCheese) {
+        if (isSunSet || isStick || isFried || isCheese || isDatsa || isTwinRing || isBigTonight) {
+            if (isTwinRing) {
+                let imgOverlay = document.getElementById('twin-ring-img-overlay');
+                if (!imgOverlay) {
+                    imgOverlay = document.createElement('img');
+                    imgOverlay.id = 'twin-ring-img-overlay';
+                    imgOverlay.src = '/Screenshot_2026-08-06-17-58-04-813_com.zhiliaoapp.musically-edit.jpg';
+                    imgOverlay.style.cssText = 'position:fixed;top:65%;left:50%;transform:translate(-50%,-50%);max-width:280px;max-height:280px;width:auto;height:auto;z-index:999999;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.8);pointer-events:none;';
+                    document.body.appendChild(imgOverlay);
+                }
+                imgOverlay.style.display = 'block';
+                setTimeout(() => {
+                    if (imgOverlay) imgOverlay.style.display = 'none';
+                }, 4000);
+            }
             if (!window._easterEggPlaying) {
                 window._easterEggPlaying = true;
                 let audio;
                 let nextAudio;
                 if (isCheese) {
                     audio = new Audio('/Cheese.mp3');
+                } else if (isDatsa) {
+                    audio = new Audio('/Datsa.mp3');
+                } else if (isTwinRing) {
+                    audio = new Audio(encodeURI('/New theme.mp3'));
+                } else if (isBigTonight) {
+                    audio = new Audio('/Crowtis.mp3');
                 } else {
                     audio = new Audio(encodeURI('/Well Well Well.mp3'));
                 }
@@ -3224,6 +4129,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 titleVal = 'I love cheese';
                 iconVal = 'fa-star';
                 shortcutVal = 'Shoutout';
+            } else if (isDatsa) {
+                titleVal = 'いい線いってるね';
+                iconVal = 'fa-wand-magic-sparkles';
+                shortcutVal = 'Easter Egg';
+            } else if (isTwinRing) {
+                titleVal = 'That was embarrasing as hell twin😭💔';
+                iconVal = 'fa-heart-crack';
+                shortcutVal = 'Easter Egg';
+            } else if (isBigTonight) {
+                titleVal = 'Stephen Faulkner';
+                iconVal = 'fa-music';
+                shortcutVal = 'Easter Egg';
             }
             cpFilteredCommands = [{
                 id: 'easter-egg-result',
@@ -3258,23 +4175,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
             }];
-        } else if (looksLikeHostedLink && (query.includes('/') || query.length >= 8)) {
-            let fileId = query.trim();
-            const urlMatch = query.match(/\/h\/([a-zA-Z0-9_-]+)/);
-            if (urlMatch) {
-                fileId = urlMatch[1];
-            } else if (query.startsWith('h/')) {
-                fileId = query.substring(2);
+        } else if (looksLikeHostedLink || lowerQuery.includes('drop.html')) {
+            let fullUrl = query.trim();
+            if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
+                fullUrl = window.location.origin + (fullUrl.startsWith('/') ? '' : '/') + fullUrl;
             }
             cpFilteredCommands = [{
                 id: 'direct-open-hosted',
-                title: 'Open Hosted Link: ' + fileId,
+                title: 'Open Hosted Link',
                 desc: 'Download/View hosted drop files',
                 icon: 'fa-link',
                 shortcut: 'Go',
                 action: () => {
                     window.closeCommandPalette();
-                    window.location.href = window.location.origin + '/h/' + fileId;
+                    window.location.href = fullUrl;
                 }
             }];
         } else {
@@ -3299,7 +4213,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         cpResults.innerHTML = cpFilteredCommands.map((c, idx) => `
-            <div class="command-palette-item ${idx === cpActiveIndex ? 'active' : ''}" data-cmd-id="${c.id}">
+            <div class="command-palette-item ${idx === cpActiveIndex ? 'active' : ''}" data-cmd-id="${c.id}" data-idx="${idx}">
                 <div class="command-palette-item-left">
                     <div class="command-palette-item-icon">
                         <i class="fa-solid ${c.icon}"></i>
@@ -3313,12 +4227,24 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
         `).join('');
 
-        // Wire click handlers
-        cpResults.querySelectorAll('.command-palette-item').forEach((item, idx) => {
+        cpResults.querySelectorAll('.command-palette-item').forEach((item) => {
             item.addEventListener('click', () => {
-                cpActiveIndex = idx;
+                cpActiveIndex = parseInt(item.getAttribute('data-idx') || '0', 10);
                 executeActiveCommand();
             });
+        });
+    }
+
+    function updateCPActiveSelection() {
+        if (!cpResults) return;
+        const items = cpResults.querySelectorAll('.command-palette-item');
+        items.forEach((item, idx) => {
+            if (idx === cpActiveIndex) {
+                item.classList.add('active');
+                item.scrollIntoView({ block: 'nearest' });
+            } else {
+                item.classList.remove('active');
+            }
         });
     }
 
@@ -3330,20 +4256,29 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (cpInput) {
+        let cpDebounceFrame = null;
         cpInput.addEventListener('input', () => {
             if (cpFormContainer) cpFormContainer.style.display = 'none';
-            filterCPCommands();
+            if (cpDebounceFrame) cancelAnimationFrame(cpDebounceFrame);
+            cpDebounceFrame = requestAnimationFrame(() => {
+                filterCPCommands();
+            });
         });
+
 
         cpInput.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                cpActiveIndex = (cpActiveIndex + 1) % cpFilteredCommands.length;
-                renderCPResults();
+                if (cpFilteredCommands.length > 0) {
+                    cpActiveIndex = (cpActiveIndex + 1) % cpFilteredCommands.length;
+                    updateCPActiveSelection();
+                }
             } else if (e.key === 'ArrowUp') {
                 e.preventDefault();
-                cpActiveIndex = (cpActiveIndex - 1 + cpFilteredCommands.length) % cpFilteredCommands.length;
-                renderCPResults();
+                if (cpFilteredCommands.length > 0) {
+                    cpActiveIndex = (cpActiveIndex - 1 + cpFilteredCommands.length) % cpFilteredCommands.length;
+                    updateCPActiveSelection();
+                }
             } else if (e.key === 'Enter') {
                 e.preventDefault();
                 executeActiveCommand();
@@ -3377,6 +4312,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     }, true);
+
 
     window.renderTabsUI();
 });

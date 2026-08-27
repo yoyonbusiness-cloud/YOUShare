@@ -32,6 +32,7 @@
             overflow-x: hidden;
         }
 
+        /* ── NAV ── */
         .pn-nav {
             position: sticky;
             top: 0;
@@ -66,6 +67,7 @@
             gap: 0.75rem;
         }
 
+        /* ── HERO ── */
         .pn-hero {
             max-width: 860px;
             margin: 0 auto;
@@ -127,6 +129,7 @@
 
         .pn-date-line i { font-size: 0.75rem; }
 
+        /* ── DIVIDER ── */
         .pn-divider {
             max-width: 860px;
             margin: 0 auto;
@@ -152,6 +155,7 @@
             white-space: nowrap;
         }
 
+        /* ── GRID ── */
         .pn-grid {
             max-width: 860px;
             margin: 0 auto;
@@ -165,6 +169,7 @@
             .pn-grid { grid-template-columns: 1fr; }
         }
 
+        /* ── CARD ── */
         .pn-card {
             background: var(--card-surface);
             border: 1px solid var(--card-border);
@@ -205,6 +210,7 @@
             .pn-card--wide { grid-column: span 1; }
         }
 
+        /* card color accents */
         .pn-card--green  { --card-glow: rgba(16,185,129,0.08); }
         .pn-card--blue   { --card-glow: rgba(59,130,246,0.08); }
         .pn-card--purple { --card-glow: rgba(139,92,246,0.08); }
@@ -213,7 +219,10 @@
         .pn-card--cyan   { --card-glow: rgba(6,182,212,0.08); }
         .pn-card--indigo { --card-glow: rgba(99,102,241,0.08); }
         .pn-card--slate  { --card-glow: rgba(148,163,184,0.08); }
+        .pn-card--lofi   { --card-glow: rgba(6,182,212,0.12); }
+        .pn-card-icon--lofi { background: rgba(6,182,212,0.12); color: #22d3ee; border: 1px solid rgba(6,182,212,0.3); }
 
+        /* ── CARD ICON ── */
         .pn-card-icon {
             width: 44px;
             height: 44px;
@@ -233,6 +242,7 @@
         .pn-card-icon--indigo { background: rgba(99,102,241,0.12); color: #818cf8; border: 1px solid rgba(99,102,241,0.2); }
         .pn-card-icon--slate  { background: rgba(148,163,184,0.12); color: #94a3b8; border: 1px solid rgba(148,163,184,0.2); }
 
+        /* ── CARD HEADER ── */
         .pn-card-head {
             display: flex;
             align-items: center;
@@ -271,12 +281,14 @@
         .pn-card-tag--privacy { background: rgba(251,191,36,0.12); color: #fbbf24; }
         .pn-card-tag--perf    { background: rgba(6,182,212,0.12); color: #22d3ee; }
 
+        /* ── CARD BODY ── */
         .pn-card-desc {
             font-size: 0.86rem;
             color: var(--text-secondary);
             line-height: 1.65;
         }
 
+        /* ── SHORTCUT PILLS ── */
         .pn-shortcuts {
             display: flex;
             flex-wrap: wrap;
@@ -315,6 +327,7 @@
             color: var(--text-pure);
         }
 
+        /* ── THEME SWATCHES ── */
         .pn-swatches {
             display: flex;
             gap: 0.5rem;
@@ -344,10 +357,12 @@
         .pn-swatch--forest   { background: linear-gradient(135deg, #0d1f14, #1a3326); }
         .pn-swatch--red      { background: linear-gradient(135deg, #2a0808, #450d0d); }
         .pn-swatch--purple   { background: linear-gradient(135deg, #1a0b2e, #2d1454); }
+        .pn-swatch--lofi     { background: linear-gradient(135deg, #090a10, #1b162b); border-color: rgba(6,182,212,0.4); }
         .pn-swatch--custom   {
             background: conic-gradient(#ff6b6b, #feca57, #48dbfb, #ff9ff3, #ff6b6b);
         }
 
+        /* ── SPEED GRAPH DEMO ── */
         .pn-graph-demo {
             height: 64px;
             background: var(--card-elevated);
@@ -373,6 +388,7 @@
             letter-spacing: 0.05em;
         }
 
+        /* ── RESUME PROGRESS ── */
         .pn-resume-bar {
             height: 6px;
             background: var(--card-elevated);
@@ -413,6 +429,7 @@
 
         .pn-resume-meta span:last-child { color: #10b981; }
 
+        /* ── FOOTER ── */
         .pn-footer {
             border-top: 1px solid var(--card-border);
             padding: 2rem;
@@ -431,6 +448,7 @@
             font-weight: 700;
         }
 
+        /* animate graph line */
         @keyframes graph-draw {
             from { stroke-dashoffset: 400; }
             to   { stroke-dashoffset: 0; }
@@ -451,6 +469,7 @@
             animation: pulse-dot 1.8s ease-in-out infinite;
         }
 
+        /* stealth strip animation */
         @keyframes strip-scan {
             0%   { transform: translateX(-100%); }
             100% { transform: translateX(400%); }
@@ -511,6 +530,7 @@
             <option value="forest-green">Forest</option>
             <option value="deep-red">Deep Red</option>
             <option value="purple-haze">Purple</option>
+            <option value="lofi-night">Lo-Fi Night (Sept Only)</option>
         </select>
         <a href="/" class="btn-pill btn-ghost btn-sm" style="padding:0.45rem 1.1rem; font-size:0.8rem; font-weight:700; text-decoration:none;">
             <i class="fa-solid fa-arrow-left" style="font-size:0.75rem;"></i> Back to emit
@@ -527,7 +547,7 @@
     <p class="pn-hero-sub">Everything added in this update, no fluff.</p>
     <div class="pn-date-line">
         <i class="fa-solid fa-calendar-days"></i>
-        June 2026 · EmitHub
+        September 2026 · EmitHub
     </div>
 </section>
 
@@ -538,6 +558,47 @@
 </div>
 
 <div class="pn-grid">
+
+    <div class="pn-card pn-card--lofi pn-card--wide" style="border-color:rgba(6,182,212,0.3); background:linear-gradient(135deg, rgba(9,10,16,0.9), rgba(27,22,43,0.9));">
+        <div class="pn-card-head">
+            <div class="pn-card-icon pn-card-icon--lofi"><i class="fa-solid fa-headphones"></i></div>
+            <div class="pn-card-meta">
+                <div class="pn-card-title" style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                    Lo-Fi Night Theme & Radio
+                    <span style="font-size:0.65rem; padding:0.18rem 0.55rem; border-radius:999px; background:rgba(236,72,153,0.15); color:#f472b6; border:1px solid rgba(236,72,153,0.3); font-weight:800; text-transform:uppercase; letter-spacing:0.08em;">Limited Edition · September Only</span>
+                </div>
+                <span class="pn-card-tag" style="background:rgba(6,182,212,0.15); color:#22d3ee;">Aesthetic & Audio</span>
+            </div>
+        </div>
+        <p class="pn-card-desc">An immersive, limited-time September theme with ambient generative Lo-Fi Radio, procedural rain & vinyl soundscapes, dual Cyan/Pink mood fluid art backgrounds, interactive audio visualizer, multiple radio stations, and cozy low-stress aesthetics for high-speed file transfers.</p>
+        <div class="pn-shortcuts" style="margin-top:0.3rem;">
+            <div class="pn-shortcut"><i class="fa-solid fa-radio" style="color:#22d3ee;"></i> <span>Generative Synthesizer Radio</span></div>
+            <div class="pn-shortcut"><i class="fa-solid fa-cloud-rain" style="color:#60a5fa;"></i> <span>Dynamic Rain Canvas & Audio</span></div>
+            <div class="pn-shortcut"><i class="fa-solid fa-wand-magic-sparkles" style="color:#f472b6;"></i> <span>Cyan / Pink Mood Toggle</span></div>
+        </div>
+    </div>
+
+    <div class="pn-card pn-card--emerald pn-card--wide">
+        <div class="pn-card-head">
+            <div class="pn-card-icon pn-card-icon--green"><i class="fa-solid fa-hard-drive"></i></div>
+            <div class="pn-card-meta">
+                <div class="pn-card-title">Direct-to-Disk Saving</div>
+                <span class="pn-card-tag pn-card-tag--perf">Performance</span>
+            </div>
+        </div>
+        <p class="pn-card-desc">Normally, browsers dump everything you download into your RAM until the transfer finishes. If you try downloading a 5GB–50GB file, your browser runs out of memory and crashes. Direct-to-Disk fixes this by writing incoming chunks straight to your hard drive in real time. Your browser uses basically zero RAM, so you can transfer huge files without any tab crashes.</p>
+    </div>
+
+    <div class="pn-card pn-card--purple">
+        <div class="pn-card-head">
+            <div class="pn-card-icon pn-card-icon--purple"><i class="fa-solid fa-wifi"></i></div>
+            <div class="pn-card-meta">
+                <div class="pn-card-title">Local Nearby Drop</div>
+                <span class="pn-card-tag pn-card-tag--ux">Discovery</span>
+            </div>
+        </div>
+        <p class="pn-card-desc">Instantly see and send files to other devices on the same Wi-Fi network without manually typing room codes or sharing links.</p>
+    </div>
 
     <div class="pn-card pn-card--green">
         <div class="pn-card-head">
@@ -570,7 +631,7 @@
         </div>
         <div class="pn-resume-meta">
             <span>Resumed at 62%</span>
-            <span>&rarr; Continuing from 4.1 GB</span>
+            <span>→ Continuing from 4.1 GB</span>
         </div>
     </div>
 
@@ -646,6 +707,7 @@
             <div class="pn-swatch pn-swatch--forest" title="Forest Green"></div>
             <div class="pn-swatch pn-swatch--red" title="Deep Red"></div>
             <div class="pn-swatch pn-swatch--purple" title="Purple Haze"></div>
+            <div class="pn-swatch pn-swatch--lofi" title="Lo-Fi Night (Sept Only)"></div>
             <div class="pn-swatch pn-swatch--custom" title="Custom"></div>
         </div>
     </div>
@@ -683,7 +745,7 @@
         <p class="pn-card-desc">Give your file transfers custom names (like "Project Files") so they appear clearly in your activity panel instead of generic, confusing codes.</p>
         <div class="pn-shortcuts" style="margin-top:0.1rem;">
             <div class="pn-shortcut" style="opacity:0.5; text-decoration:line-through; font-size:0.75rem;">a3f9c82b1d...zip</div>
-            <div style="color:var(--text-muted); font-size:0.8rem; display:flex; align-items:center;">&rarr;</div>
+            <div style="color:var(--text-muted); font-size:0.8rem; display:flex; align-items:center;">→</div>
             <div class="pn-shortcut" style="border-color:rgba(16,185,129,0.3); color:#10b981;">"Project Files — Final Draft"</div>
         </div>
     </div>

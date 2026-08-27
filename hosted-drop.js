@@ -3,7 +3,7 @@ const CHUNKED_DROP_MAX_BYTES = 50 * 1024 * 1024 * 1024;
 const HOSTED_CHUNK_SIZE_BYTES = 128 * 1024 * 1024;
 const AES_GCM_TAG_BYTES = 16;
 const IV_PREFIX_BYTES = 4;
-const MEMORY_SAFE_DOWNLOAD_MAX_BYTES = 4096 * 1024 * 1024;
+const MEMORY_SAFE_DOWNLOAD_MAX_BYTES = 500 * 1024 * 1024;
 
 async function generateDropKey() {
     return await crypto.subtle.generateKey(
@@ -18,8 +18,25 @@ async function exportDropKey(key) {
     return btoa(String.fromCharCode(...new Uint8Array(raw)));
 }
 
+function uint8ToB64Url(u8) {
+    return btoa(String.fromCharCode(...u8)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function b64UrlToUint8(str) {
+    let b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+}
+
 async function importDropKey(b64, usages = ['decrypt']) {
-    const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    let raw;
+    if (typeof b64 === 'string') {
+        let normalized = b64.replace(/-/g, '+').replace(/_/g, '/');
+        while (normalized.length % 4) normalized += '=';
+        raw = Uint8Array.from(atob(normalized), c => c.charCodeAt(0));
+    } else {
+        raw = b64;
+    }
     return await crypto.subtle.importKey('raw', raw, { name: 'AES-GCM', length: 256 }, false, usages);
 }
 
@@ -117,11 +134,12 @@ async function uploadHostedChunk({ token, index, cipherBuf, onProgress }) {
     });
 }
 
-async function finalizeHostedUploadSession(token, payload = null, isCollection = false) {
+async function finalizeHostedUploadSession(token, payload = null, isCollection = false, burnOnDownload = false) {
     const fd = new FormData();
     fd.append('token', token);
     if (payload) fd.append('payload', JSON.stringify(payload));
     if (isCollection) fd.append('isCollection', 'true');
+    if (burnOnDownload) fd.append('burnOnDownload', 'true');
     const res = await fetch('/upload-finalize', { method: 'POST', body: fd });
     if (!res.ok) throw new Error('Failed to finalize upload: ' + (await res.text()));
     return await res.json();
@@ -294,14 +312,20 @@ async function hostedDrop(file, onProgress, durationMs = 60 * 60 * 1000, nicknam
     clearHostedResumeState(token);
     if (typeof ActivityTracker !== 'undefined') ActivityTracker.setHostedLinkResuming(token, false);
     onProgress?.('finalizing', 100);
-    const finalizeResult = await finalizeHostedUploadSession(token, payload, !!options.isCollection);
+    const finalizeResult = await finalizeHostedUploadSession(token, payload, !!options.isCollection, !!options.burnOnDownload);
     const finalizedInfo = (finalizeResult && finalizeResult.expires)
         ? finalizeResult
         : await fetchHostedDropInfo(token);
 
     if (window.auditLog) auditLog(`✅ Chunked drop stored. Token: ${token}`);
 
-    const url = `${window.location.origin}/drop.html?t=${token}#key=${encodeURIComponent(JSON.stringify(payload))}`;
+    const rawKey = await crypto.subtle.exportKey('raw', key);
+    const packedKeyBytes = new Uint8Array(rawKey.byteLength + ivPrefix4.byteLength);
+    packedKeyBytes.set(new Uint8Array(rawKey), 0);
+    packedKeyBytes.set(ivPrefix4, rawKey.byteLength);
+    const compactKey = uint8ToB64Url(packedKeyBytes);
+
+    const url = `${window.location.origin}/h/${token}#${compactKey}`;
     if (typeof ActivityTracker !== 'undefined') {
         ActivityTracker.updateHostedLinkUrl(token, url, finalizedInfo?.expires || null);
     }
@@ -340,20 +364,13 @@ function triggerFullPageExplosion() {
 
 async function receiveHostedDrop() {
     const params = new URLSearchParams(window.location.search);
-    const token = params.get('t');
-    const hash = window.location.hash;
-
-    if (!token || !hash.startsWith('#key=')) return false;
-
-    const rawFrag = decodeURIComponent(hash.slice(5));
-    let fragPayload;
-    try {
-        fragPayload = JSON.parse(rawFrag);
-    } catch {
-        fragPayload = null;
+    let token = params.get('t');
+    if (!token) {
+        const match = window.location.pathname.match(/^\/h\/([a-zA-Z0-9_-]+)/);
+        if (match) token = match[1];
     }
-    const isChunked = !!(fragPayload && fragPayload.v === 1 && fragPayload.k && fragPayload.iv);
-    const keyB64 = isChunked ? fragPayload.k : rawFrag;
+    const hash = window.location.hash || '';
+    if (!token) return false;
 
     let meta;
     try {
@@ -370,6 +387,55 @@ async function receiveHostedDrop() {
             }, 1200);
         }
         return true;
+    }
+
+    let fragPayload = null;
+    let keyB64 = null;
+    let ivB64 = null;
+
+    if (hash.startsWith('#key=')) {
+        try { fragPayload = JSON.parse(decodeURIComponent(hash.slice(5))); } catch { fragPayload = null; }
+    } else if (hash.startsWith('#k=')) {
+        const rawHashKey = hash.slice(3);
+        try {
+            const packed = b64UrlToUint8(rawHashKey);
+            if (packed.length >= 36) {
+                keyB64 = uint8ToB64(packed.slice(0, 32));
+                ivB64 = uint8ToB64(packed.slice(32, 36));
+                fragPayload = [1, keyB64, ivB64];
+            } else {
+                keyB64 = uint8ToB64(packed.slice(0, 32));
+            }
+        } catch { }
+    } else if (hash.length > 1) {
+        const rawHashKey = hash.slice(1);
+        try {
+            const packed = b64UrlToUint8(rawHashKey);
+            if (packed.length >= 36) {
+                keyB64 = uint8ToB64(packed.slice(0, 32));
+                ivB64 = uint8ToB64(packed.slice(32, 36));
+                fragPayload = [1, keyB64, ivB64];
+            } else if (packed.length === 32) {
+                keyB64 = uint8ToB64(packed);
+            }
+        } catch { }
+    }
+
+    if (!fragPayload && meta.payload) {
+        try { fragPayload = typeof meta.payload === 'string' ? JSON.parse(meta.payload) : meta.payload; } catch { fragPayload = meta.payload; }
+    }
+
+    const isChunked = !!(meta.mode === 'chunked' || (fragPayload && (
+        (fragPayload.v === 1 && fragPayload.k && fragPayload.iv) ||
+        (Array.isArray(fragPayload) && fragPayload[0] === 1)
+    )));
+
+    if (!keyB64) {
+        const rawFrag = hash.startsWith('#key=') ? decodeURIComponent(hash.slice(5)) : '';
+        keyB64 = isChunked ? (Array.isArray(fragPayload) ? fragPayload[1] : (fragPayload ? fragPayload.k : rawFrag)) : rawFrag;
+    }
+    if (!ivB64 && fragPayload) {
+        ivB64 = Array.isArray(fragPayload) ? fragPayload[2] : fragPayload.iv;
     }
 
     const statusEl = document.getElementById('drop-status');
@@ -597,13 +663,34 @@ async function receiveHostedDrop() {
                             dlBtn.disabled = true;
                             dlBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
                             try {
-                                const fileUrl = new URL(file.url);
-                                const fileToken = fileUrl.searchParams.get('t');
-                                const fileHash = fileUrl.hash;
-                                const fileRawFrag = decodeURIComponent(fileHash.slice(5));
-                                const fileFrag = JSON.parse(fileRawFrag);
-                                const fileKeyB64 = Array.isArray(fileFrag) ? fileFrag[1] : fileFrag.k;
-                                const fileIvB64 = Array.isArray(fileFrag) ? fileFrag[2] : fileFrag.iv;
+                                const fileUrl = new URL(file.url, window.location.origin);
+                                let fileToken = fileUrl.searchParams.get('t');
+                                if (!fileToken) {
+                                    const match = fileUrl.pathname.match(/\/h\/([a-zA-Z0-9_-]+)/);
+                                    if (match) fileToken = match[1];
+                                }
+                                let fileKeyB64 = null;
+                                let fileIvB64 = null;
+                                const fileHash = fileUrl.hash || '';
+                                if (fileHash.startsWith('#key=')) {
+                                    try {
+                                        const fileRawFrag = decodeURIComponent(fileHash.slice(5));
+                                        const fileFrag = JSON.parse(fileRawFrag);
+                                        fileKeyB64 = Array.isArray(fileFrag) ? fileFrag[1] : fileFrag.k;
+                                        fileIvB64 = Array.isArray(fileFrag) ? fileFrag[2] : fileFrag.iv;
+                                    } catch { }
+                                } else if (fileHash.length > 1) {
+                                    const rawKeyPart = fileHash.replace(/^#(k=)?/, '');
+                                    try {
+                                        const packed = b64UrlToUint8(rawKeyPart);
+                                        if (packed.length >= 36) {
+                                            fileKeyB64 = uint8ToB64(packed.slice(0, 32));
+                                            fileIvB64 = uint8ToB64(packed.slice(32, 36));
+                                        } else {
+                                            fileKeyB64 = uint8ToB64(packed);
+                                        }
+                                    } catch { }
+                                }
                                 const fileKey = await importDropKey(fileKeyB64);
 
                                 const fileInfoResp = await fetch(`/drop-info/${fileToken}`);
@@ -687,6 +774,15 @@ async function receiveHostedDrop() {
             a.click();
             downloadBtn.textContent = '✓ Downloaded';
             if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+            if (meta.burnOnDownload) {
+                fetch('/drop-burn', { method: 'POST', body: new URLSearchParams({ token }) }).catch(() => {});
+                const card = document.querySelector('.drop-card') || document.querySelector('.sleek-card') || document.body;
+                if (typeof triggerDustExplosion === 'function') triggerDustExplosion(card);
+                if (statusEl) statusEl.textContent = '🔥 Burned: This link has self-destructed.';
+                downloadBtn.disabled = true;
+                downloadBtn.textContent = '🔥 Burned';
+                downloadBtn.style.background = 'var(--accent-danger, #ef4444)';
+            }
             return;
         }
 
@@ -756,6 +852,15 @@ async function receiveHostedDrop() {
             downloadBtn.textContent = '✓ Downloaded';
             if (typeof playProceduralSound === 'function') playProceduralSound('pop');
             if (statusEl) statusEl.textContent = '✓ Download complete.';
+            if (meta.burnOnDownload) {
+                fetch('/drop-burn', { method: 'POST', body: new URLSearchParams({ token }) }).catch(() => {});
+                const card = document.querySelector('.drop-card') || document.querySelector('.sleek-card') || document.body;
+                if (typeof triggerDustExplosion === 'function') triggerDustExplosion(card);
+                if (statusEl) statusEl.textContent = '🔥 Burned: This link has self-destructed.';
+                downloadBtn.disabled = true;
+                downloadBtn.textContent = '🔥 Burned';
+                downloadBtn.style.background = 'var(--accent-danger, #ef4444)';
+            }
         } catch (e) {
             if (e.name === 'AbortError') {
                 downloadBtn.disabled = false;
