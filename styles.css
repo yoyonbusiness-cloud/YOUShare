@@ -847,7 +847,7 @@
 
     .screen {
         display: none;
-        flex: 1;
+        flex: 1 0 auto;
         width: 100%;
     }
 
@@ -855,8 +855,10 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        flex: 1;
+        flex: 1 0 auto;
+        min-height: calc(100vh - 140px);
         width: 100%;
+        padding: clamp(2rem, 5vh, 4rem) 0;
     }
 
     .hero-split {
