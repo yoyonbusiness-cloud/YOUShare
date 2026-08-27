@@ -534,6 +534,9 @@ function initNearbyDiscoveryClient() {
         renderNearbyList(_cachedNearbyPeers);
     });
 
+    socket.on('nearby-debug', (dbg) => {
+        console.log('[Nearby Debug] Server resolved IP:', dbg.resolvedIp, '| Group:', dbg.group, '| x-forwarded-for:', dbg.xfwd, '| x-arr-clientip:', dbg.arr);
+    });
     socket.on('nearby-incoming-request', ({ fromSocketId, fromName, fileManifest, autoRoomCode }) => {
         const modal = document.getElementById('nearby-request-modal');
         const senderEl = document.getElementById('nearby-sender-name');

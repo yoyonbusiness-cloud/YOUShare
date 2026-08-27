@@ -811,9 +811,12 @@ function startServer(port = 3000) {
         socket.emit('public-rooms-list', initPublicList);
 
         socket.on('nearby-announce', (info) => {
+            const rawHeaders = socket.handshake.headers || {};
             const clientIp = getSocketClientIp(socket);
             const networkGroup = `nearby:${clientIp}`;
             const wasInGroup = socket.nearbyNetworkGroup === networkGroup;
+
+            console.log(`[nearby-announce] sid=${socket.id} ip=${clientIp} group=${networkGroup} xfwd=${rawHeaders['x-forwarded-for']} arr=${rawHeaders['x-arr-clientip']} cf=${rawHeaders['cf-connecting-ip']}`);
 
             if (socket.nearbyNetworkGroup && socket.nearbyNetworkGroup !== networkGroup) {
                 socket.to(socket.nearbyNetworkGroup).emit('nearby-peer-left', socket.id);
@@ -838,7 +841,9 @@ function startServer(port = 3000) {
                     }
                 }
             }
+            console.log(`[nearby-announce] peers in group=${peers.length}`);
             socket.emit('nearby-peers-list', peers);
+            socket.emit('nearby-debug', { resolvedIp: clientIp, group: networkGroup, xfwd: rawHeaders['x-forwarded-for'], arr: rawHeaders['x-arr-clientip'] });
             if (!wasInGroup) {
                 socket.to(networkGroup).emit('nearby-peer-joined', socket.nearbyInfo);
             }
