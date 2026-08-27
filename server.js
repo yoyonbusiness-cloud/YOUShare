@@ -783,6 +783,16 @@ function startServer(port = 3000) {
         return rawIp;
     }
 
+    function getSocketNetworkGroup(socket) {
+        const ip = getSocketClientIp(socket);
+        if (ip === 'unknown') return 'nearby:unknown';
+        const privateSubnet = ip.match(/^(10\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+|192\.168\.\d+|127\.\d+\.\d+)\.\d+$/);
+        if (privateSubnet) {
+            return `nearby:${privateSubnet[1]}`;
+        }
+        return `nearby:${ip}`;
+    }
+
     io.on('connection', (socket) => {
         socket.on('join-drop-room', (token) => {
             socket.join(`drop:${token}`);
@@ -813,7 +823,7 @@ function startServer(port = 3000) {
         socket.on('nearby-announce', (info) => {
             const rawHeaders = socket.handshake.headers || {};
             const clientIp = getSocketClientIp(socket);
-            const networkGroup = `nearby:${clientIp}`;
+            const networkGroup = getSocketNetworkGroup(socket);
             const wasInGroup = socket.nearbyNetworkGroup === networkGroup;
 
             console.log(`[nearby-announce] sid=${socket.id} ip=${clientIp} group=${networkGroup} xfwd=${rawHeaders['x-forwarded-for']} arr=${rawHeaders['x-arr-clientip']} cf=${rawHeaders['cf-connecting-ip']}`);
@@ -848,6 +858,7 @@ function startServer(port = 3000) {
                 socket.to(networkGroup).emit('nearby-peer-joined', socket.nearbyInfo);
             }
         });
+
 
         socket.on('nearby-leave', () => {
             if (socket.nearbyNetworkGroup) {
