@@ -33,3 +33,9 @@ crop.ps1
 crop_icon.py
 profiles_data/
 New folder*/
+*.mp3
+*.m4a
+*.wav
+*.ogg
+*.jpg
+*.jpeg
