@@ -981,13 +981,22 @@ function initCustomTimePickers() {
         input.readOnly = true;
         input.classList.add('custom-time-input-trigger');
 
+        const isOptional = input.id.includes('recurring');
+        const defaultPlaceholder = input.id.includes('open') || input.id.includes('start') ? '09:00 AM (Optional)' : (input.id.includes('close') || input.id.includes('end') ? '05:00 PM (Optional)' : 'Select Time');
+        input.placeholder = defaultPlaceholder;
+
         const updateDisplay = () => {
-            const raw = input.dataset.rawTime || '09:00';
-            const { h, m } = parseTo24(raw);
-            input.setAttribute('value', format12h(h, m));
+            const raw = input.dataset.rawTime || '';
+            if (!raw) {
+                input.setAttribute('value', '');
+                input.placeholder = defaultPlaceholder;
+            } else {
+                const { h, m } = parseTo24(raw);
+                input.setAttribute('value', format12h(h, m));
+            }
         };
 
-        const initialVal = input.getAttribute('value') || input.value || (input.id.includes('end') ? '17:00' : '09:00');
+        const initialVal = input.getAttribute('value') || (!isOptional && input.id.includes('end') ? '17:00' : (!isOptional && input.id.includes('start') ? '09:00' : ''));
         input.dataset.rawTime = initialVal;
 
         Object.defineProperty(input, 'value', {
@@ -1007,7 +1016,7 @@ function initCustomTimePickers() {
             e.stopPropagation();
             closePopover();
 
-            const raw = input.dataset.rawTime || '09:00';
+            const raw = input.dataset.rawTime || (input.id.includes('close') || input.id.includes('end') ? '17:00' : '09:00');
             let { h, m } = parseTo24(raw);
             let period = h >= 12 ? 'PM' : 'AM';
             let h12 = h % 12 === 0 ? 12 : h % 12;
@@ -1066,8 +1075,9 @@ function initCustomTimePickers() {
                         <span class="time-preset-pill" data-set="21:00">9:00 PM</span>
                         <span class="time-preset-pill" data-set="now">Now</span>
                     </div>
-                    <div style="margin-top:0.75rem;">
-                        <button class="btn-pill btn-primary btn-sm" id="time-pop-done-btn" style="width:100%; padding:0.5rem; font-size:0.85rem;">Done</button>
+                    <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
+                        <button class="btn-pill btn-ghost btn-sm" id="time-pop-clear-btn" style="flex:1; padding:0.5rem; font-size:0.85rem;">Clear</button>
+                        <button class="btn-pill btn-primary btn-sm" id="time-pop-done-btn" style="flex:1; padding:0.5rem; font-size:0.85rem;">Done</button>
                     </div>
                 `;
 
@@ -1109,6 +1119,17 @@ function initCustomTimePickers() {
                         render();
                     };
                 });
+                const clearBtn = popover.querySelector('#time-pop-clear-btn');
+                if (clearBtn) {
+                    clearBtn.onclick = (ev) => {
+                        ev.stopPropagation();
+                        input.dataset.rawTime = '';
+                        updateDisplay();
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                        input.dispatchEvent(new Event('change', { bubbles: true }));
+                        closePopover();
+                    };
+                }
                 const doneBtn = popover.querySelector('#time-pop-done-btn');
                 if (doneBtn) {
                     doneBtn.onclick = (ev) => {
