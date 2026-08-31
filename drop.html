@@ -122,6 +122,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="styles.css">
     <script src="/socket.io/socket.io.js"></script>
+    <script src="lofi-radio.js"></script>
     <style>
         *,
         *::before,
@@ -405,6 +406,11 @@
 </head>
 
 <body>
+    <canvas id="rgb-liquid-canvas"
+        style="position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:-1;display:none;opacity:0.85;"></canvas>
+    <canvas id="lofi-rain-canvas"></canvas>
+    <canvas id="lofi-aurora-canvas"
+        style="position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:0;display:none;opacity:1;"></canvas>
     <header class="site-header">
         <div class="logo" onclick="window.location.href='/'">emit</div>
         <nav class="nav-links">
@@ -451,6 +457,10 @@
                     </div>
                 </div>
             </div>
+            <button id="lofi-nav-btn" class="btn-audit-toggle" title="Lo-Fi Radio & Visuals">
+                <i class="fa-solid fa-compact-disc"></i>
+                <span>Lo-Fi</span>
+            </button>
             <button id="settings-toggle-btn" class="btn-audit-toggle" title="Settings">
                 <i class="fa-solid fa-gear"></i>
                 <span>Settings</span>
@@ -653,11 +663,16 @@
                     if (typeof window.startRgbSpectrumEngine === 'function') {
                         window.startRgbSpectrumEngine();
                     }
+                } else if (newTheme === 'lofi-night') {
+                    window.showLoFiPlayer();
                 } else if (newTheme === 'custom') {
                     customThemeControls.style.display = 'flex';
                     updateCustomTheme();
                     if (typeof applySavedElementPaints === 'function') applySavedElementPaints();
                 } else {
+                    if (window.LoFiRadio && !window.LoFiRadio.isPlaying()) {
+                        window.hideLoFiPlayer();
+                    }
                     customThemeControls.style.display = 'none';
                     localStorage.removeItem('emit-element-paints');
                     const propsToRemove = [
@@ -994,8 +1009,201 @@
                 const db = document.getElementById('drop-download-btn');
                 if (db) db.disabled = true;
             }
+
+            initLoFiUI();
+            if (savedTheme === 'lofi-night') {
+                window.showLoFiPlayer();
+            }
         });
+
+        let lofiPlayer = null;
+        let lofiVinyl = null;
+        let lofiPlayBtn = null;
+        let lofiNextBtn = null;
+        let lofiCloseBtn = null;
+        let lofiExpandBtn = null;
+        let lofiMoodBtn = null;
+        let lofiLauncherBtn = null;
+        let lofiVolSlider = null;
+        let lofiVinylSlider = null;
+        let lofiRainSlider = null;
+
+        function initLoFiUI() {
+            lofiPlayer = document.getElementById('lofi-radio-player');
+            lofiVinyl = document.getElementById('lofi-vinyl-disc');
+            lofiPlayBtn = document.getElementById('lofi-play-btn');
+            lofiNextBtn = document.getElementById('lofi-next-btn');
+            lofiCloseBtn = document.getElementById('lofi-close-btn');
+            lofiExpandBtn = document.getElementById('lofi-expand-btn');
+            lofiMoodBtn = document.getElementById('lofi-mood-btn');
+            lofiLauncherBtn = document.getElementById('lofi-launcher-btn');
+            lofiVolSlider = document.getElementById('lofi-vol');
+            lofiVinylSlider = document.getElementById('lofi-vinyl-lvl');
+            lofiRainSlider = document.getElementById('lofi-rain-lvl');
+            if (!lofiPlayer) return;
+
+            const savedMood = localStorage.getItem('emit-lofi-mood');
+            if (savedMood === 'pink') {
+                document.documentElement.classList.add('lofi-mood-pink');
+            }
+
+            if (lofiLauncherBtn) {
+                lofiLauncherBtn.onclick = () => window.showLoFiPlayer();
+            }
+
+            const lofiNavBtn = document.getElementById('lofi-nav-btn');
+            if (lofiNavBtn) {
+                lofiNavBtn.onclick = () => window.showLoFiPlayer();
+            }
+
+            if (lofiPlayBtn) {
+                lofiPlayBtn.onclick = () => {
+                    if (!window.LoFiRadio) return;
+                    if (window.LoFiRadio.isPlaying()) {
+                        window.LoFiRadio.pause();
+                        lofiPlayBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
+                        if (lofiVinyl) lofiVinyl.classList.remove('spinning');
+                    } else {
+                        window.LoFiRadio.play();
+                        lofiPlayBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
+                        if (lofiVinyl) lofiVinyl.classList.add('spinning');
+                    }
+                };
+            }
+
+            if (lofiMoodBtn) {
+                lofiMoodBtn.onclick = () => {
+                    if (window.LoFiRadio) {
+                        const mood = window.LoFiRadio.toggleMood();
+                        if (typeof showToast === 'function') {
+                            if (mood === 'pink') {
+                                showToast('Chromatic Velvet Silk', 'Moving Violet & Magenta fluid aesthetic activated 🌸', 'info');
+                            } else {
+                                showToast('Obsidian Ice Noir', 'Moving Cyan & Noir fluid aesthetic activated ❄️', 'info');
+                            }
+                        }
+                    }
+                };
+            }
+
+            if (lofiVinyl) {
+                lofiVinyl.onclick = () => {
+                    if (window.LoFiRadio) window.LoFiRadio.toggleMood();
+                };
+            }
+
+            if (lofiNextBtn) {
+                lofiNextBtn.onclick = () => {
+                    if (window.LoFiRadio) window.LoFiRadio.next();
+                };
+            }
+
+            if (lofiCloseBtn) {
+                lofiCloseBtn.onclick = () => window.hideLoFiPlayer();
+            }
+
+            if (lofiExpandBtn) {
+                lofiExpandBtn.onclick = () => lofiPlayer.classList.toggle('expanded');
+            }
+
+            if (lofiVolSlider) {
+                lofiVolSlider.oninput = () => {
+                    if (window.LoFiRadio) window.LoFiRadio.setVolume(parseFloat(lofiVolSlider.value));
+                };
+            }
+
+            if (lofiVinylSlider) {
+                lofiVinylSlider.oninput = () => {
+                    if (window.LoFiRadio) window.LoFiRadio.setVinylLevel(parseFloat(lofiVinylSlider.value));
+                };
+            }
+
+            if (lofiRainSlider) {
+                lofiRainSlider.oninput = () => {
+                    if (window.LoFiRadio) window.LoFiRadio.setRainLevel(parseFloat(lofiRainSlider.value));
+                };
+            }
+        }
+
+        window.showLoFiPlayer = function () {
+            if (!lofiPlayer) initLoFiUI();
+            if (!lofiPlayer) return;
+            lofiPlayer.classList.add('visible');
+            if (lofiLauncherBtn) lofiLauncherBtn.classList.remove('visible');
+            if (window.LoFiRadio) {
+                window.LoFiRadio.startRainCanvas();
+            }
+        };
+
+        window.hideLoFiPlayer = function () {
+            if (!lofiPlayer) return;
+            lofiPlayer.classList.remove('visible');
+            const curTheme = document.documentElement.getAttribute('data-theme');
+            if (lofiLauncherBtn && curTheme === 'lofi-night') {
+                lofiLauncherBtn.classList.add('visible');
+            }
+            if (window.LoFiRadio) {
+                window.LoFiRadio.stopRainCanvas();
+            }
+        };
     </script>
+
+    <div id="lofi-radio-player" class="lofi-radio-player">
+        <div class="lofi-deck-wrapper">
+            <div class="lofi-vinyl" id="lofi-vinyl-disc" title="Click to switch Pink/Blue vibe">
+                <div class="lofi-vinyl-center"></div>
+            </div>
+            <div class="lofi-tonearm" id="lofi-tonearm">
+                <div class="lofi-tonearm-base"></div>
+                <div class="lofi-tonearm-arm"></div>
+                <div class="lofi-tonearm-head"></div>
+            </div>
+        </div>
+        <div class="lofi-info">
+            <div class="lofi-title">
+                <div class="lofi-ticker-wrapper">
+                    <span id="lofi-track-title" class="lofi-ticker-text">Midnight Study</span>
+                </div>
+                <div class="lofi-eq-container">
+                    <div class="lofi-eq-bar"></div>
+                    <div class="lofi-eq-bar"></div>
+                    <div class="lofi-eq-bar"></div>
+                    <div class="lofi-eq-bar"></div>
+                </div>
+            </div>
+            <div class="lofi-ticker-wrapper">
+                <div class="lofi-subtitle lofi-ticker-text" id="lofi-track-sub">Track 01 · Rhodes & Chill</div>
+            </div>
+        </div>
+        <div class="lofi-controls">
+            <button class="lofi-btn" id="lofi-mood-btn" title="Toggle Pink/Blue Mood (Easter Egg)"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+            <button class="lofi-btn" id="lofi-expand-btn" title="Ambience sliders"><i class="fa-solid fa-sliders"></i></button>
+            <button class="lofi-btn lofi-play-btn" id="lofi-play-btn" title="Play / Pause"><i class="fa-solid fa-play"></i></button>
+            <button class="lofi-btn" id="lofi-next-btn" title="Next track"><i class="fa-solid fa-forward-step"></i></button>
+            <button class="lofi-btn" id="lofi-close-btn" title="Close"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="lofi-expand" id="lofi-expand-panel">
+            <div class="lofi-ambience">
+                <div class="lofi-slider-row">
+                    <span style="width:52px;">Volume</span>
+                    <input type="range" id="lofi-vol" min="0" max="1" step="0.01" value="0.55">
+                </div>
+                <div class="lofi-slider-row">
+                    <span style="width:52px;">Vinyl</span>
+                    <input type="range" id="lofi-vinyl-lvl" min="0" max="1" step="0.01" value="0.18">
+                </div>
+                <div class="lofi-slider-row">
+                    <span style="width:52px;">Rain</span>
+                    <input type="range" id="lofi-rain-lvl" min="0" max="1" step="0.01" value="0.22">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <button id="lofi-launcher-btn" class="lofi-launcher-btn" title="Open Lo-Fi Radio">
+        <i class="fa-solid fa-compact-disc"></i>
+        <span>Lo-Fi Beats</span>
+    </button>
 </body>
 
 </html>
