@@ -940,14 +940,14 @@ function getHostedModalElements() {
 }
 
 function updateAdminAccessControlsVisibility() {
-    const savedUser = (localStorage.getItem('emit-username') || localStorage.getItem('p2p-username') || '').toLowerCase();
-    const isAdmin = localStorage.getItem('emit-admin-mode') === 'true' || savedUser === 'yoyon';
+    const savedUser = (localStorage.getItem('ys_persistent_name') || sessionStorage.getItem('ys_user_name') || '').toLowerCase().trim();
+    const isAdmin = savedUser === 'yoyon' && localStorage.getItem('emit-admin-mode') !== 'false';
     const adminControls = document.getElementById('admin-access-controls');
     const adminBadge = document.getElementById('access-admin-badge');
     if (adminControls) adminControls.style.display = isAdmin ? 'flex' : 'none';
     if (adminBadge) {
         adminBadge.style.display = isAdmin ? 'inline-block' : 'none';
-        adminBadge.textContent = savedUser === 'yoyon' ? 'Admin: yoyon' : 'Admin Mode';
+        adminBadge.textContent = 'Admin: yoyon';
     }
 }
 
@@ -1281,6 +1281,7 @@ function closeHostedModal({ reset = true, clearActiveState = false } = {}) {
 
 function openHostedModal() {
     const { modal } = getHostedModalElements();
+    updateAdminAccessControlsVisibility();
     localStorage.removeItem('emit-active-hosted-token');
     localStorage.removeItem('emit-active-hosted-state');
     localStorage.removeItem('emit-active-hosted-url');
@@ -1388,10 +1389,11 @@ async function startHostedUpload(files) {
         return;
     }
 
+    const isYoyon = ((localStorage.getItem('ys_persistent_name') || sessionStorage.getItem('ys_user_name') || '').toLowerCase().trim()) === 'yoyon';
     const nickname = (nicknameInput?.value || '').trim();
     const burnOnDownload = !!burnCheckbox?.checked;
-    const canaryPing = !!canaryCheckbox?.checked;
-    const decoyTrap = !!decoyCheckbox?.checked;
+    const canaryPing = isYoyon && !!canaryCheckbox?.checked;
+    const decoyTrap = isYoyon && !!decoyCheckbox?.checked;
     const timedWindowEnabled = !!timedWindowCheckbox?.checked;
     const accessWindowStart = timedWindowEnabled ? (timedWindowStart?.value || '') : '';
     const accessWindowEnd = timedWindowEnabled ? (timedWindowEnd?.value || '') : '';
@@ -2971,6 +2973,7 @@ if (settingsConfirmNameBtn) {
 
         localStorage.setItem('ys_persistent_name', newName);
         sessionStorage.setItem('ys_user_name', newName);
+        updateAdminAccessControlsVisibility();
 
         const statsPill = document.getElementById('live-stats-pill');
         if (statsPill) {
@@ -3050,6 +3053,7 @@ window.addEventListener('keydown', async (e) => {
     if (!document.cookie.includes('emit_vault_active=1')) {
         localStorage.removeItem('ys_persistent_name');
         document.cookie = "emit_vault_active=1; path=/; SameSite=Strict";
+        updateAdminAccessControlsVisibility();
     }
 });
 
@@ -3909,7 +3913,12 @@ document.addEventListener('DOMContentLoaded', () => {
             shortcut: 'Admin',
             action: () => {
                 window.closeCommandPalette();
-                const current = localStorage.getItem('emit-admin-mode') === 'true';
+                const savedUser = (localStorage.getItem('ys_persistent_name') || sessionStorage.getItem('ys_user_name') || '').toLowerCase().trim();
+                if (savedUser !== 'yoyon') {
+                    showToast('Access Denied', 'Admin controls are restricted to Yoyon.', 'error');
+                    return;
+                }
+                const current = localStorage.getItem('emit-admin-mode') !== 'false';
                 const next = !current;
                 localStorage.setItem('emit-admin-mode', next ? 'true' : 'false');
                 updateAdminAccessControlsVisibility();
@@ -4218,7 +4227,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }];
         } else {
+            const currentSavedUser = (localStorage.getItem('ys_persistent_name') || sessionStorage.getItem('ys_user_name') || '').toLowerCase().trim();
             cpFilteredCommands = cpCommands.filter(c => {
+                if (c.id === 'toggle-admin-controls' && currentSavedUser !== 'yoyon') {
+                    return false;
+                }
                 if (c.id === 'morse-part-391') {
                     const cleanQ = lowerQuery.trim();
                     return cleanQ === 'morse' || cleanQ === 'morse code';
