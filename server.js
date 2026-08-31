@@ -47,6 +47,8 @@ function startServer(port = 3000) {
     const DROP_TTL_MS = 60 * 60 * 1000;
     const dropMeta = new Map();
     const uploadSessions = new Map();
+    const nearbyGroups = new Map();
+    const NEARBY_GRACE_PERIOD_MS = 10 * 60 * 1000;
 
     function generateDropToken() {
         return crypto.randomBytes(8).toString('base64url');
@@ -754,45 +756,6 @@ function startServer(port = 3000) {
         io.emit('live-stats-updated', { connectedUsers, activeHostedLinks });
     }
 
-    function getSocketClientIp(socket) {
-        const headers = socket.handshake.headers || {};
-        let rawIp = headers['x-arr-clientip'] ||
-                    headers['cf-connecting-ip'] ||
-                    headers['true-client-ip'] ||
-                    headers['x-client-ip'] ||
-                    (headers['x-forwarded-for'] ? headers['x-forwarded-for'].split(',')[0].trim() : '') ||
-                    socket.handshake.address ||
-                    'unknown';
-
-        if (!rawIp || rawIp === 'unknown') return 'unknown';
-
-        if (rawIp.startsWith('::ffff:')) {
-            rawIp = rawIp.replace(/^::ffff:/, '');
-        }
-
-        const ipv4Match = rawIp.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(:\d+)?$/);
-        if (ipv4Match) {
-            return ipv4Match[1];
-        }
-
-        const ipv6Bracketed = rawIp.match(/^\[([a-fA-F0-9:]+)\](:\d+)?$/);
-        if (ipv6Bracketed) {
-            return ipv6Bracketed[1];
-        }
-
-        return rawIp;
-    }
-
-    function getSocketNetworkGroup(socket) {
-        const ip = getSocketClientIp(socket);
-        if (ip === 'unknown') return 'nearby:unknown';
-        const privateSubnet = ip.match(/^(10\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+|192\.168\.\d+|127\.\d+\.\d+)\.\d+$/);
-        if (privateSubnet) {
-            return `nearby:${privateSubnet[1]}`;
-        }
-        return `nearby:${ip}`;
-    }
-
     io.on('connection', (socket) => {
         socket.on('join-drop-room', (token) => {
             socket.join(`drop:${token}`);
@@ -820,61 +783,129 @@ function startServer(port = 3000) {
         }
         socket.emit('public-rooms-list', initPublicList);
 
+function getNearbyNetworkGroup(socket) {
+    const headers = socket.handshake.headers || {};
+    let raw = headers['x-arr-clientip'] ||
+        headers['cf-connecting-ip'] ||
+        headers['x-real-ip'] ||
+        headers['x-client-ip'] ||
+        (headers['x-forwarded-for'] ? headers['x-forwarded-for'].split(',')[0] : '') ||
+        socket.handshake.address ||
+        '';
+
+    let ip = String(raw).trim();
+    if (!ip) return 'nearby:default';
+
+    const bracketMatch = ip.match(/^\[([a-fA-F0-9:]+)\](?::\d+)?$/);
+    if (bracketMatch) {
+        ip = bracketMatch[1];
+    } else {
+        const ipv4PortMatch = ip.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::\d+)?$/);
+        if (ipv4PortMatch) {
+            ip = ipv4PortMatch[1];
+        }
+    }
+
+    ip = ip.replace(/^::ffff:/i, '').trim();
+
+    const isLoopback = ip === '::1' || ip === '127.0.0.1' || ip === 'localhost';
+    const isPrivateIpv4 = /^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3})$/.test(ip);
+    const isPrivateIpv6 = /^(fe80:|fc|fd)/i.test(ip);
+
+    if (isLoopback || isPrivateIpv4 || isPrivateIpv6) {
+        return 'nearby:local-lan';
+    }
+
+    if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) {
+        return `nearby:${ip}`;
+    }
+
+    if (ip.includes(':')) {
+        const parts = ip.split(':');
+        if (parts.length >= 4) {
+            return `nearby:${parts.slice(0, 4).join(':')}`;
+        }
+    }
+
+    return `nearby:${ip}`;
+}
+
         socket.on('nearby-announce', (info) => {
-            const rawHeaders = socket.handshake.headers || {};
-            const clientIp = getSocketClientIp(socket);
-            const networkGroup = getSocketNetworkGroup(socket);
-            const wasInGroup = socket.nearbyNetworkGroup === networkGroup;
-
-            console.log(`[nearby-announce] sid=${socket.id} ip=${clientIp} group=${networkGroup} xfwd=${rawHeaders['x-forwarded-for']} arr=${rawHeaders['x-arr-clientip']} cf=${rawHeaders['cf-connecting-ip']}`);
-
-            if (socket.nearbyNetworkGroup && socket.nearbyNetworkGroup !== networkGroup) {
-                socket.to(socket.nearbyNetworkGroup).emit('nearby-peer-left', socket.id);
-                socket.leave(socket.nearbyNetworkGroup);
-            }
-
+            const networkGroup = getNearbyNetworkGroup(socket);
             socket.nearbyNetworkGroup = networkGroup;
+            const deviceId = (info && info.deviceId) ? String(info.deviceId).substring(0, 64) : socket.id;
+            socket.nearbyDeviceId = deviceId;
             socket.nearbyInfo = {
                 id: socket.id,
+                deviceId: deviceId,
                 name: (info && info.name) ? String(info.name).substring(0, 24) : 'Nearby Device',
                 deviceType: (info && info.deviceType) ? String(info.deviceType) : 'desktop',
                 directToDiskSupported: !!(info && info.directToDiskSupported)
             };
             socket.join(networkGroup);
-            const clientsInRoom = io.sockets.adapter.rooms.get(networkGroup);
+
+            if (!nearbyGroups.has(networkGroup)) {
+                nearbyGroups.set(networkGroup, new Map());
+            }
+            const group = nearbyGroups.get(networkGroup);
+
+            if (group.has(deviceId)) {
+                const existing = group.get(deviceId);
+                if (existing.disconnectTimer) {
+                    clearTimeout(existing.disconnectTimer);
+                    existing.disconnectTimer = null;
+                }
+                existing.id = socket.id;
+                existing.socket = socket;
+                existing.info = socket.nearbyInfo;
+            } else {
+                group.set(deviceId, {
+                    id: socket.id,
+                    deviceId: deviceId,
+                    socket: socket,
+                    info: socket.nearbyInfo,
+                    disconnectTimer: null
+                });
+            }
+
             const peers = [];
-            if (clientsInRoom) {
-                for (const socketId of clientsInRoom) {
-                    if (socketId !== socket.id) {
-                        const s = io.sockets.sockets.get(socketId);
-                        if (s && s.nearbyInfo) peers.push(s.nearbyInfo);
-                    }
+            for (const [devId, peer] of group.entries()) {
+                if (devId !== deviceId && peer.info) {
+                    peers.push(peer.info);
                 }
             }
-            console.log(`[nearby-announce] peers in group=${peers.length}`);
+
             socket.emit('nearby-peers-list', peers);
-            socket.emit('nearby-debug', { resolvedIp: clientIp, group: networkGroup, xfwd: rawHeaders['x-forwarded-for'], arr: rawHeaders['x-arr-clientip'] });
-            if (!wasInGroup) {
-                socket.to(networkGroup).emit('nearby-peer-joined', socket.nearbyInfo);
-            }
+            socket.to(networkGroup).emit('nearby-peer-joined', socket.nearbyInfo);
         });
 
-
         socket.on('nearby-leave', () => {
-            if (socket.nearbyNetworkGroup) {
-                socket.to(socket.nearbyNetworkGroup).emit('nearby-peer-left', socket.id);
+            if (socket.nearbyNetworkGroup && socket.nearbyDeviceId) {
+                const group = nearbyGroups.get(socket.nearbyNetworkGroup);
+                if (group) {
+                    const peer = group.get(socket.nearbyDeviceId);
+                    if (peer && peer.disconnectTimer) clearTimeout(peer.disconnectTimer);
+                    group.delete(socket.nearbyDeviceId);
+                }
+                socket.to(socket.nearbyNetworkGroup).emit('nearby-peer-left', socket.nearbyDeviceId);
                 socket.leave(socket.nearbyNetworkGroup);
                 socket.nearbyNetworkGroup = null;
+                socket.nearbyDeviceId = null;
                 socket.nearbyInfo = null;
             }
         });
 
-        socket.on('nearby-send-request', (targetSocketId, fileManifest) => {
-            const target = io.sockets.sockets.get(targetSocketId);
-            if (target && target.nearbyNetworkGroup === socket.nearbyNetworkGroup) {
+        socket.on('nearby-send-request', (targetId, fileManifest) => {
+            const group = nearbyGroups.get(socket.nearbyNetworkGroup);
+            let targetPeer = null;
+            if (group) {
+                targetPeer = group.get(targetId) || Array.from(group.values()).find(p => p.id === targetId);
+            }
+            if (targetPeer && targetPeer.socket) {
                 const autoRoomCode = 'AIR-' + crypto.randomBytes(3).toString('hex').toUpperCase();
-                target.emit('nearby-incoming-request', {
+                targetPeer.socket.emit('nearby-incoming-request', {
                     fromSocketId: socket.id,
+                    fromDeviceId: socket.nearbyDeviceId,
                     fromName: socket.nearbyInfo?.name || 'Nearby Device',
                     fileManifest,
                     autoRoomCode
@@ -921,10 +952,15 @@ function startServer(port = 3000) {
         });
 
         socket.on('nearby-send-hosted-file', ({ targetSocketId, dropUrl, filename, size, token }) => {
-            const target = io.sockets.sockets.get(targetSocketId);
-            if (target && target.nearbyNetworkGroup === socket.nearbyNetworkGroup) {
-                target.emit('nearby-incoming-hosted-file', {
+            const group = nearbyGroups.get(socket.nearbyNetworkGroup);
+            let targetPeer = null;
+            if (group) {
+                targetPeer = group.get(targetSocketId) || Array.from(group.values()).find(p => p.id === targetSocketId);
+            }
+            if (targetPeer && targetPeer.socket) {
+                targetPeer.socket.emit('nearby-incoming-hosted-file', {
                     fromName: socket.nearbyInfo?.name || 'Nearby Device',
+                    fromDeviceId: socket.nearbyDeviceId,
                     dropUrl,
                     filename,
                     size,
@@ -1502,8 +1538,23 @@ function startServer(port = 3000) {
                     }
                 }
             }
-            if (socket.nearbyNetworkGroup) {
-                socket.to(socket.nearbyNetworkGroup).emit('nearby-peer-left', socket.id);
+            if (socket.nearbyNetworkGroup && socket.nearbyDeviceId) {
+                const group = nearbyGroups.get(socket.nearbyNetworkGroup);
+                const networkGroup = socket.nearbyNetworkGroup;
+                const deviceId = socket.nearbyDeviceId;
+                if (group && group.has(deviceId)) {
+                    const peer = group.get(deviceId);
+                    if (peer.id === socket.id) {
+                        if (peer.disconnectTimer) clearTimeout(peer.disconnectTimer);
+                        peer.disconnectTimer = setTimeout(() => {
+                            if (group.has(deviceId) && group.get(deviceId).id === socket.id) {
+                                group.delete(deviceId);
+                                if (group.size === 0) nearbyGroups.delete(networkGroup);
+                                io.to(networkGroup).emit('nearby-peer-left', deviceId);
+                            }
+                        }, NEARBY_GRACE_PERIOD_MS);
+                    }
+                }
             }
             broadcastLiveStats();
         });

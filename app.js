@@ -312,10 +312,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    initNearbyDiscoveryClient();
     announceNearbyPresence();
     setInterval(() => {
         announceNearbyPresence();
-    }, 15000);
+    }, 5000);
 
     const directDiskInput = document.getElementById('settings-direct-disk');
     if (directDiskInput) {
@@ -437,19 +438,31 @@ let _cachedNearbyPeers = [];
 let _nearbyTargetPeerId = null;
 let _nearbyPendingFiles = null;
 
+function getOrCreateNearbyDeviceId() {
+    let devId = localStorage.getItem('ys_device_id');
+    if (!devId) {
+        devId = 'dev-' + Math.random().toString(36).substring(2, 11) + '-' + Date.now().toString(36);
+        localStorage.setItem('ys_device_id', devId);
+    }
+    return devId;
+}
+
 function announceNearbyPresence() {
     if (typeof socket === 'undefined' || !socket.emit) return;
     const name = localStorage.getItem('ys_persistent_name') || 'Device-' + Math.floor(1000 + Math.random() * 9000);
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     const deviceType = isMobile ? 'mobile' : 'desktop';
     const directToDiskSupported = typeof window.showSaveFilePicker === 'function';
+    const deviceId = getOrCreateNearbyDeviceId();
 
     socket.emit('nearby-announce', {
+        deviceId,
         name,
         deviceType,
         directToDiskSupported
     });
 }
+window.announceNearbyPresence = announceNearbyPresence;
 
 function renderNearbyList(peers) {
     const listEl = document.getElementById('nearby-devices-list');
@@ -463,6 +476,7 @@ function renderNearbyList(peers) {
 
     listEl.innerHTML = _cachedNearbyPeers.map(p => {
         const icon = p.deviceType === 'mobile' ? 'fa-mobile-screen' : 'fa-laptop';
+        const targetId = p.deviceId || p.id;
         return `
         <div style="background:rgba(255,255,255,0.025); border:1px solid rgba(255,255,255,0.06); border-radius:12px; padding:0.75rem 0.85rem; display:flex; flex-direction:column; gap:0.65rem; transition:background 0.15s, border-color 0.15s;"
              onmouseenter="this.style.background='rgba(255,255,255,0.04)'; this.style.borderColor='rgba(255,255,255,0.12)'"
@@ -482,14 +496,14 @@ function renderNearbyList(peers) {
                 <button class="btn-pill btn-ghost btn-sm" style="flex:1; font-size:0.72rem; padding:0.4rem 0.5rem; border:1px solid rgba(255,255,255,0.08); background:rgba(255,255,255,0.03); color:var(--text-primary); font-weight:600; display:flex; align-items:center; justify-content:center; gap:0.4rem; cursor:pointer; border-radius:8px; transition:all 0.15s;"
                         onmouseenter="this.style.background='rgba(255,255,255,0.08)'; this.style.borderColor='rgba(255,255,255,0.2)';"
                         onmouseleave="this.style.background='rgba(255,255,255,0.03)'; this.style.borderColor='rgba(255,255,255,0.08)';"
-                        onclick="startNearbyTransferWithMode('${p.id}', 'hosted')">
+                        onclick="startNearbyTransferWithMode('${targetId}', 'hosted')">
                     <i class="fa-solid fa-cloud-arrow-down" style="font-size:0.72rem; color:var(--text-muted);"></i>
                     <span>Hosted Link</span>
                 </button>
                 <button class="btn-pill btn-ghost btn-sm" style="flex:1; font-size:0.72rem; padding:0.4rem 0.5rem; border:1px solid rgba(255,255,255,0.08); background:rgba(255,255,255,0.03); color:var(--text-primary); font-weight:600; display:flex; align-items:center; justify-content:center; gap:0.4rem; cursor:pointer; border-radius:8px; transition:all 0.15s;"
                         onmouseenter="this.style.background='rgba(255,255,255,0.08)'; this.style.borderColor='rgba(255,255,255,0.2)';"
                         onmouseleave="this.style.background='rgba(255,255,255,0.03)'; this.style.borderColor='rgba(255,255,255,0.08)';"
-                        onclick="startNearbyTransferWithMode('${p.id}', 'p2p')">
+                        onclick="startNearbyTransferWithMode('${targetId}', 'p2p')">
                     <i class="fa-solid fa-arrows-split-up-and-left" style="font-size:0.72rem; color:var(--text-muted);"></i>
                     <span>P2P Room</span>
                 </button>
@@ -510,8 +524,6 @@ function startNearbyTransferWithMode(peerId, mode) {
         picker.click();
     }
 }
-window.startNearbyTransferWithMode = startNearbyTransferWithMode;
-window.announceNearbyPresence = announceNearbyPresence;
 
 function initNearbyDiscoveryClient() {
     if (typeof socket === 'undefined') return;
@@ -521,22 +533,39 @@ function initNearbyDiscoveryClient() {
     });
 
     socket.on('nearby-peer-joined', (peer) => {
-        const existing = _cachedNearbyPeers.find(p => p.id === peer.id);
-        if (!existing) {
+        const existingIdx = _cachedNearbyPeers.findIndex(p => (p.deviceId && peer.deviceId && p.deviceId === peer.deviceId) || p.id === peer.id);
+        if (existingIdx >= 0) {
+            _cachedNearbyPeers[existingIdx] = peer;
+        } else {
             _cachedNearbyPeers.push(peer);
-            renderNearbyList(_cachedNearbyPeers);
             showToast('Nearby Device Found', `${peer.name} is now visible on this network.`, 'info');
         }
-    });
-
-    socket.on('nearby-peer-left', (peerId) => {
-        _cachedNearbyPeers = _cachedNearbyPeers.filter(p => p.id !== peerId);
         renderNearbyList(_cachedNearbyPeers);
     });
 
-    socket.on('nearby-debug', (dbg) => {
-        console.log('[Nearby Debug] Server resolved IP:', dbg.resolvedIp, '| Group:', dbg.group, '| x-forwarded-for:', dbg.xfwd, '| x-arr-clientip:', dbg.arr);
+    socket.on('nearby-peer-left', (peerId) => {
+        _cachedNearbyPeers = _cachedNearbyPeers.filter(p => p.deviceId !== peerId && p.id !== peerId);
+        renderNearbyList(_cachedNearbyPeers);
     });
+
+    socket.on('connect', () => {
+        announceNearbyPresence();
+    });
+
+    window.addEventListener('focus', () => {
+        announceNearbyPresence();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            announceNearbyPresence();
+        }
+    });
+
+    if (socket.connected) {
+        announceNearbyPresence();
+    }
+
     socket.on('nearby-incoming-request', ({ fromSocketId, fromName, fileManifest, autoRoomCode }) => {
         const modal = document.getElementById('nearby-request-modal');
         const senderEl = document.getElementById('nearby-sender-name');
@@ -657,28 +686,77 @@ function initNearbyDiscoveryClient() {
 
 
                 try {
+                    let _nearbyProgressOverlay = document.getElementById('nearby-upload-overlay');
+                    if (!_nearbyProgressOverlay) {
+                        _nearbyProgressOverlay = document.createElement('div');
+                        _nearbyProgressOverlay.id = 'nearby-upload-overlay';
+                        _nearbyProgressOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.72);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:99999;gap:1.25rem;';
+                        _nearbyProgressOverlay.innerHTML = `
+                            <div style="background:var(--card-surface,#1a1a1a);border:1px solid rgba(255,255,255,0.08);border-radius:18px;padding:2rem 2.5rem;min-width:300px;max-width:90vw;text-align:center;">
+                                <div style="font-size:0.75rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--accent-emerald,#10b981);margin-bottom:0.5rem;">Sending to Nearby Device</div>
+                                <div id="nearby-upload-filename" style="font-weight:700;font-size:1rem;color:var(--text-pure,#fff);margin-bottom:1.25rem;word-break:break-all;"></div>
+                                <div style="background:rgba(255,255,255,0.06);border-radius:999px;height:8px;overflow:hidden;margin-bottom:0.75rem;">
+                                    <div id="nearby-upload-bar" style="height:100%;border-radius:999px;background:var(--accent-emerald,#10b981);width:0%;transition:width 0.3s ease;"></div>
+                                </div>
+                                <div id="nearby-upload-pct" style="font-size:0.85rem;color:var(--text-secondary,#aaa);"></div>
+                                <div id="nearby-upload-step" style="font-size:0.75rem;color:var(--text-muted,#666);margin-top:0.35rem;"></div>
+                            </div>`;
+                        document.body.appendChild(_nearbyProgressOverlay);
+                    }
+                    const _overlayFilename = document.getElementById('nearby-upload-filename');
+                    const _overlayBar = document.getElementById('nearby-upload-bar');
+                    const _overlayPct = document.getElementById('nearby-upload-pct');
+                    const _overlayStep = document.getElementById('nearby-upload-step');
+                    let _lastPct = 0;
+                    const _setProgress = (filename, pct, step) => {
+                        const clamped = Math.max(_lastPct, Math.min(100, Math.round(pct)));
+                        _lastPct = clamped;
+                        if (_overlayFilename) _overlayFilename.textContent = filename;
+                        if (_overlayBar) _overlayBar.style.width = `${clamped}%`;
+                        if (_overlayPct) _overlayPct.textContent = `${clamped}%`;
+                        if (_overlayStep) _overlayStep.textContent = step || '';
+                    };
+                    _nearbyProgressOverlay.style.display = 'flex';
+
                     let dropResult;
                     if (isCollection) {
-                        dropResult = await hostedDropCollection(files, (status, pct) => {
-
-                        });
+                        const uploadedFiles = [];
+                        for (let i = 0; i < files.length; i++) {
+                            const f = files[i];
+                            _lastPct = Math.round((i / files.length) * 100);
+                            _setProgress(`File ${i + 1} of ${files.length}: ${f.name}`, _lastPct, 'Encrypting & uploading...');
+                            const itemRes = await window.hostedDrop(f, (phase, pct) => {
+                                const overall = ((i + (pct / 100)) / files.length) * 100;
+                                _setProgress(`File ${i + 1} of ${files.length}: ${f.name}`, overall, phase);
+                            });
+                            uploadedFiles.push({ name: f.name, size: f.size, type: f.type, url: itemRes.url, token: itemRes.token });
+                        }
+                        _setProgress('Finalizing collection...', 99, 'Bundling...');
+                        const collectionBlob = new Blob([JSON.stringify({ name: `${files.length} Files`, files: uploadedFiles })], { type: 'application/json' });
+                        const collectionFile = new File([collectionBlob], 'collection.json', { type: 'application/json' });
+                        dropResult = await window.hostedDrop(collectionFile, () => {}, 60 * 60 * 1000, '', { isCollection: true });
                     } else {
-                        dropResult = await hostedDrop(file, (status, pct) => {
-
+                        _setProgress(file.name, 0, 'Encrypting & uploading...');
+                        dropResult = await window.hostedDrop(file, (phase, pct) => {
+                            _setProgress(file.name, pct, phase);
                         });
                     }
+
+                    _nearbyProgressOverlay.style.display = 'none';
 
                     if (dropResult && dropResult.url) {
                         socket.emit('nearby-send-hosted-file', {
                             targetSocketId,
                             dropUrl: dropResult.url,
-                            filename: isCollection ? `${files.length} files (Archive)` : file.name,
+                            filename: isCollection ? `${files.length} files (Collection)` : file.name,
                             size: isCollection ? files.reduce((acc, f) => acc + f.size, 0) : file.size,
                             token: dropResult.token
                         });
-
+                        showToast('Sent to Device', 'Hosted link invitation sent to recipient.', 'success');
                     }
                 } catch (err) {
+                    const ov = document.getElementById('nearby-upload-overlay');
+                    if (ov) ov.style.display = 'none';
                     console.error(err);
                     showToast('Upload Error', err.message || 'Failed to upload hosted file.', 'error');
                 }
@@ -986,22 +1064,13 @@ function initCustomTimePickers() {
         input.readOnly = true;
         input.classList.add('custom-time-input-trigger');
 
-        const isOptional = input.id.includes('recurring');
-        const defaultPlaceholder = input.id.includes('open') || input.id.includes('start') ? '09:00 AM (Optional)' : (input.id.includes('close') || input.id.includes('end') ? '05:00 PM (Optional)' : 'Select Time');
-        input.placeholder = defaultPlaceholder;
-
         const updateDisplay = () => {
-            const raw = input.dataset.rawTime || '';
-            if (!raw) {
-                input.setAttribute('value', '');
-                input.placeholder = defaultPlaceholder;
-            } else {
-                const { h, m } = parseTo24(raw);
-                input.setAttribute('value', format12h(h, m));
-            }
+            const raw = input.dataset.rawTime || '09:00';
+            const { h, m } = parseTo24(raw);
+            input.setAttribute('value', format12h(h, m));
         };
 
-        const initialVal = input.getAttribute('value') || (!isOptional && input.id.includes('end') ? '17:00' : (!isOptional && input.id.includes('start') ? '09:00' : ''));
+        const initialVal = input.getAttribute('value') || input.value || (input.id.includes('end') ? '17:00' : '09:00');
         input.dataset.rawTime = initialVal;
 
         Object.defineProperty(input, 'value', {
@@ -1021,7 +1090,7 @@ function initCustomTimePickers() {
             e.stopPropagation();
             closePopover();
 
-            const raw = input.dataset.rawTime || (input.id.includes('close') || input.id.includes('end') ? '17:00' : '09:00');
+            const raw = input.dataset.rawTime || '09:00';
             let { h, m } = parseTo24(raw);
             let period = h >= 12 ? 'PM' : 'AM';
             let h12 = h % 12 === 0 ? 12 : h % 12;
@@ -1080,9 +1149,8 @@ function initCustomTimePickers() {
                         <span class="time-preset-pill" data-set="21:00">9:00 PM</span>
                         <span class="time-preset-pill" data-set="now">Now</span>
                     </div>
-                    <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
-                        <button class="btn-pill btn-ghost btn-sm" id="time-pop-clear-btn" style="flex:1; padding:0.5rem; font-size:0.85rem;">Clear</button>
-                        <button class="btn-pill btn-primary btn-sm" id="time-pop-done-btn" style="flex:1; padding:0.5rem; font-size:0.85rem;">Done</button>
+                    <div style="margin-top:0.75rem;">
+                        <button class="btn-pill btn-primary btn-sm" id="time-pop-done-btn" style="width:100%; padding:0.5rem; font-size:0.85rem;">Done</button>
                     </div>
                 `;
 
@@ -1124,17 +1192,6 @@ function initCustomTimePickers() {
                         render();
                     };
                 });
-                const clearBtn = popover.querySelector('#time-pop-clear-btn');
-                if (clearBtn) {
-                    clearBtn.onclick = (ev) => {
-                        ev.stopPropagation();
-                        input.dataset.rawTime = '';
-                        updateDisplay();
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                        input.dispatchEvent(new Event('change', { bubbles: true }));
-                        closePopover();
-                    };
-                }
                 const doneBtn = popover.querySelector('#time-pop-done-btn');
                 if (doneBtn) {
                     doneBtn.onclick = (ev) => {
