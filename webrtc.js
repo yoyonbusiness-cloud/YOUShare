@@ -1492,8 +1492,8 @@ async function joinRoom(idParam, secretParam, isCreator = false, skipWipe = fals
     window.safetyTimerActive = false;
     window.isShadowTab = false;
     window.primarySocketId = null;
+    const hasPersistedTransferState = Object.keys(loadP2PResumeState()).length > 0 || Object.keys(loadP2PSendResumeState()).length > 0;
     if (!skipWipe) {
-        const hasPersistedTransferState = Object.keys(loadP2PResumeState()).length > 0 || Object.keys(loadP2PSendResumeState()).length > 0;
         const hasPersistedTransferActivity = (() => {
             try {
                 const savedTransfers = JSON.parse(localStorage.getItem('emit-p2p-transfers') || '{}');
@@ -1582,8 +1582,8 @@ async function joinRoom(idParam, secretParam, isCreator = false, skipWipe = fals
     const openTime = document.getElementById('recurring-open-time') ? document.getElementById('recurring-open-time').value : '';
     const closeTime = document.getElementById('recurring-close-time') ? document.getElementById('recurring-close-time').value : '';
     if (openTime && closeTime) {
-        scheduleConfig[rawId] = { open: openTime, close: closeTime };
-        localStorage.setItem('ys_rooms_schedule', JSON.stringify(scheduleConfig));
+        activeRoomScheduleMap[rawId] = { open: openTime, close: closeTime };
+        localStorage.setItem('ys_rooms_schedule', JSON.stringify(activeRoomScheduleMap));
     }
 
     const isSecure = window.isSecureContext && window.crypto && window.crypto.subtle;
