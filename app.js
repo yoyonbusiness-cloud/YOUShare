@@ -587,9 +587,6 @@ function initNearbyDiscoveryClient() {
         acceptBtn.onclick = () => {
             modal.style.display = 'none';
             socket.emit('nearby-accept-request', { fromSocketId, fromDeviceId, autoRoomCode });
-            if (typeof joinRoom === 'function') {
-                joinRoom(autoRoomCode, '', false, true);
-            }
         };
 
         rejectBtn.onclick = () => {
@@ -599,13 +596,13 @@ function initNearbyDiscoveryClient() {
     });
 
     socket.on('nearby-pair-ready', ({ autoRoomCode }) => {
-        if (typeof joinRoom === 'function' && (typeof roomId === 'undefined' || roomId !== autoRoomCode)) {
+        if (typeof joinRoom === 'function') {
             joinRoom(autoRoomCode, '', false, true);
         }
     });
 
     socket.on('nearby-request-accepted', ({ autoRoomCode }) => {
-        if (typeof joinRoom === 'function' && (typeof roomId === 'undefined' || roomId !== autoRoomCode)) {
+        if (typeof joinRoom === 'function') {
             joinRoom(autoRoomCode, '', true, true);
         }
         if (_nearbyPendingFiles && _nearbyPendingFiles.length) {
