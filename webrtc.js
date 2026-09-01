@@ -1,3 +1,4 @@
+// Hosted Resume Modal Logic (restored)
 window.showHostedResumeModal = function (token, filenames, onResume) {
     let modal = document.getElementById('hosted-resume-modal');
     if (!modal) {
@@ -1604,12 +1605,12 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
         inviteUrl: `${window.location.origin}${window.location.pathname}?workspace=${rawId}`
     };
     syncDebugState();
-    if (isCreator) {
+    if (isCreator || rawId.startsWith('AIR-')) {
         try {
             localStorage.setItem('ys_workspace', rawId);
             if (secret) localStorage.setItem('ys_guard', secret);
             else localStorage.removeItem('ys_guard');
-            localStorage.setItem('ys_is_creator', 'true');
+            localStorage.setItem('ys_is_creator', isCreator ? 'true' : 'false');
         } catch (e) { }
         ui.text.currentRoom.textContent = roomId;
         if (ui.text.displayRoomCode) ui.text.displayRoomCode.textContent = roomId;
@@ -1702,7 +1703,7 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
         ActivityTracker.addP2PRoom(roomId, { name: roomId });
     }
 
-    if (isCreator) {
+    if (isCreator || rawId.startsWith('AIR-')) {
         showScreen('transfer');
     }
     updateConnectionStatus(isCreator ? 'waiting' : 'connecting');
@@ -2655,14 +2656,20 @@ function mangleSDP(sdp) {
     return sdp.replace(/b=AS:.*\r\n/g, "").replace(/a=mid:.*\r\n/g, (match) => match + "b=AS:1048576\r\n");
 }
 
-function setupP2PSendLoop(fileId, targetId, activePeer) {
+function setupP2PSendLoop(fileId, targetId, activePeer, onDone) {
     const getPeer = () => {
         const s = activeSends[fileId];
         return (s && peers[s.targetId]) ? peers[s.targetId] : activePeer;
     };
 
     const state = activeSends[fileId];
-    if (!state) return;
+    if (!state) {
+        if (typeof onDone === 'function') onDone();
+        return;
+    }
+    if (typeof onDone === 'function') {
+        state.onDone = onDone;
+    }
 
     const cancelBtn = document.getElementById(`cancel-transfer-${fileId}`);
     if (cancelBtn) {
@@ -2676,6 +2683,7 @@ function setupP2PSendLoop(fileId, targetId, activePeer) {
             if (getPeer().dc && getPeer().dc.readyState === 'open') {
                 getPeer().dc.send(JSON.stringify({ type: 'cancel-transfer', fileId }));
             }
+            if (typeof state.onDone === 'function') state.onDone();
         };
     }
 
@@ -2863,7 +2871,9 @@ function setupP2PSendLoop(fileId, targetId, activePeer) {
                             size: state.file.size
                         });
                     }
+                    const completionCallback = state.onDone;
                     delete activeSends[fileId];
+                    if (typeof completionCallback === 'function') completionCallback();
                     return;
                 }
             }
@@ -2871,6 +2881,7 @@ function setupP2PSendLoop(fileId, targetId, activePeer) {
             console.error('Send Error:', err);
             updateTransferProgress(fileId, 0, `FAILED: ${err.message}`, '', '');
             persistPausedSend(fileId, getPeer()?.name || activePeer.name, Math.min((((activeSends[fileId]?.chunkIndex || 0) * CHUNK_SIZE) / state.file.size) * 100, 100));
+            if (typeof state.onDone === 'function') state.onDone();
         }
     };
 
@@ -2944,7 +2955,7 @@ async function resumeSendFile(fileId, targetId) {
         state.paused = false;
         persistPausedSend(fileId, state.peerName || peer.name || 'peer');
         if (typeof state.resumeLoop !== 'function') {
-            setupP2PSendLoop(fileId, targetId, peer);
+            setupP2PSendLoop(fileId, targetId, peer, state.onDone);
         }
         if (typeof state.resumeLoop === 'function') {
             state.resumeLoop();
@@ -3282,7 +3293,7 @@ window.encryptMeta = encryptMeta;
 
 let p2pTransferQueue = [];
 let activeP2PCount = 0;
-const MAX_CONCURRENT_P2P = Infinity;
+const MAX_CONCURRENT_P2P = 1;
 
 function processP2PQueue() {
     while (activeP2PCount < MAX_CONCURRENT_P2P && p2pTransferQueue.length > 0) {
@@ -3542,6 +3553,14 @@ if (dropModalClose) {
 
 function sendFile(file, targetId, nickname = '', note = '') {
     return new Promise(async (resolve) => {
+        let isResolved = false;
+        const done = () => {
+            if (!isResolved) {
+                isResolved = true;
+                resolve();
+            }
+        };
+
         const executeSend = async (activePeer) => {
             const processedFile = file;
             const fileId = consumePendingTransferRow(processedFile, targetId) || ((typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
@@ -3607,7 +3626,7 @@ function sendFile(file, targetId, nickname = '', note = '') {
 
             if (!activePeer.dc || activePeer.dc.readyState !== 'open') {
                 processedFile.nickname = nickname;
-                const sendState = { file: processedFile, chunkIndex: 0, paused: false, aborted: false, fileId, targetId, resumeLoop: null, waitingForOpen: true };
+                const sendState = { file: processedFile, chunkIndex: 0, paused: false, aborted: false, fileId, targetId, resumeLoop: null, waitingForOpen: true, onDone: done };
                 activeSends[fileId] = sendState;
                 updateTransferProgress(fileId, 0, `Connecting to ${activePeer.name}`, '', '');
                 if (typeof ActivityTracker !== 'undefined') {
@@ -3620,7 +3639,7 @@ function sendFile(file, targetId, nickname = '', note = '') {
                     });
                 }
                 persistPausedSend(fileId, activePeer.name, 0);
-                return resolve();
+                return;
             }
 
             const metaEnvelope = await encryptMeta(rawMeta, activePeer.ecdhKey);
@@ -3628,14 +3647,14 @@ function sendFile(file, targetId, nickname = '', note = '') {
                 activePeer.dc.send(JSON.stringify({ type: 'file-meta-envelope', payload: metaEnvelope }));
             } catch (err) {
                 showToast('Transfer Failed', `Failed to initiate send to ${activePeer.name}.`, 'error');
-                return resolve();
+                return done();
             }
 
             processedFile.nickname = nickname;
-            const sendState = { file: processedFile, chunkIndex: 0, paused: false, aborted: false, fileId, targetId, resumeLoop: null, waitingForOpen: false };
+            const sendState = { file: processedFile, chunkIndex: 0, paused: false, aborted: false, fileId, targetId, resumeLoop: null, waitingForOpen: false, onDone: done };
             activeSends[fileId] = sendState;
 
-            setupP2PSendLoop(fileId, targetId, activePeer);
+            setupP2PSendLoop(fileId, targetId, activePeer, done);
             if (activeSends[fileId] && typeof activeSends[fileId].resumeLoop === 'function') {
                 activeSends[fileId].resumeLoop();
             }
@@ -3661,7 +3680,7 @@ function sendFile(file, targetId, nickname = '', note = '') {
                             markSendPaused(fileId, currentPeer ? currentPeer.name : 'peer', 0);
                         }
                         showToast('Transfer Failed', `Connection to ${currentPeer ? currentPeer.name : 'peer'} lost.`, 'error');
-                        resolve();
+                        done();
                     }
                 }
             }, 100);

@@ -915,8 +915,17 @@ function getNearbyNetworkGroup(socket) {
             }
         });
 
-        socket.on('nearby-accept-request', ({ fromSocketId, autoRoomCode }) => {
-            const sender = io.sockets.sockets.get(fromSocketId);
+        socket.on('nearby-accept-request', ({ fromSocketId, fromDeviceId, autoRoomCode }) => {
+            let sender = fromSocketId ? io.sockets.sockets.get(fromSocketId) : null;
+            if (!sender && fromDeviceId && socket.nearbyNetworkGroup) {
+                const group = nearbyGroups.get(socket.nearbyNetworkGroup);
+                if (group) {
+                    const p = group.get(fromDeviceId);
+                    if (p && p.socket && p.socket.connected) {
+                        sender = p.socket;
+                    }
+                }
+            }
             if (sender) {
                 const roomHash = hashId(autoRoomCode);
                 if (!activeRooms.has(roomHash)) {
@@ -941,6 +950,8 @@ function getNearbyNetworkGroup(socket) {
                 }
                 sender.emit('nearby-request-accepted', { targetSocketId: socket.id, autoRoomCode });
                 socket.emit('nearby-pair-ready', { autoRoomCode });
+            } else {
+                socket.emit('nearby-request-failed', 'Sender is no longer connected.');
             }
         });
 
@@ -1018,7 +1029,7 @@ function getNearbyNetworkGroup(socket) {
                 }
                 room = existingRoomEntry.room;
             } else {
-                if (!isCreator) {
+                if (!isCreator && !publicCode.startsWith('AIR-')) {
                     socket.emit('room-not-found');
                     return;
                 }

@@ -566,7 +566,7 @@ function initNearbyDiscoveryClient() {
         announceNearbyPresence();
     }
 
-    socket.on('nearby-incoming-request', ({ fromSocketId, fromName, fileManifest, autoRoomCode }) => {
+    socket.on('nearby-incoming-request', ({ fromSocketId, fromDeviceId, fromName, fileManifest, autoRoomCode }) => {
         const modal = document.getElementById('nearby-request-modal');
         const senderEl = document.getElementById('nearby-sender-name');
         const countEl = document.getElementById('nearby-file-count');
@@ -586,7 +586,7 @@ function initNearbyDiscoveryClient() {
 
         acceptBtn.onclick = () => {
             modal.style.display = 'none';
-            socket.emit('nearby-accept-request', { fromSocketId, autoRoomCode });
+            socket.emit('nearby-accept-request', { fromSocketId, fromDeviceId, autoRoomCode });
         };
 
         rejectBtn.onclick = () => {
@@ -596,16 +596,20 @@ function initNearbyDiscoveryClient() {
     });
 
     socket.on('nearby-pair-ready', ({ autoRoomCode }) => {
-
         if (typeof joinRoom === 'function') {
             joinRoom(autoRoomCode, '', false);
+        }
+        if (typeof showScreen === 'function') {
+            showScreen('transfer');
         }
     });
 
     socket.on('nearby-request-accepted', ({ autoRoomCode }) => {
-
         if (typeof joinRoom === 'function') {
             joinRoom(autoRoomCode, '', true);
+        }
+        if (typeof showScreen === 'function') {
+            showScreen('transfer');
         }
         if (_nearbyPendingFiles && _nearbyPendingFiles.length) {
             const filesToSend = [..._nearbyPendingFiles];
@@ -613,12 +617,13 @@ function initNearbyDiscoveryClient() {
             let attempts = 0;
             const checkAndSend = () => {
                 attempts++;
-                if (typeof peers !== 'undefined' && Object.values(peers).length > 0 && typeof handleFiles === 'function') {
+                const peerArray = (typeof peers !== 'undefined') ? Object.values(peers) : [];
+                if (peerArray.length > 0 && typeof handleFiles === 'function') {
                     handleFiles(filesToSend);
-                } else if (attempts < 20) {
-                    setTimeout(checkAndSend, 300);
-                } else if (typeof handleFiles === 'function') {
-                    handleFiles(filesToSend);
+                } else if (attempts < 60) {
+                    setTimeout(checkAndSend, 500);
+                } else {
+                    showToast('Connection Timeout', 'Nearby device did not connect in time.', 'warning');
                 }
             };
             setTimeout(checkAndSend, 500);
