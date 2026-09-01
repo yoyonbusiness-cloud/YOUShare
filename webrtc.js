@@ -3314,7 +3314,7 @@ function processP2PQueue() {
     while (activeP2PCount < MAX_CONCURRENT_P2P && p2pTransferQueue.length > 0) {
         const item = p2pTransferQueue.shift();
         activeP2PCount++;
-        sendFile(item.file, item.targetId, item.nickname, item.note || '').finally(() => {
+        sendFile(item.file, item.targetId, item.nickname, item.note || '', item.pendingId).finally(() => {
             activeP2PCount--;
             processP2PQueue();
         });
@@ -3566,7 +3566,7 @@ if (dropModalClose) {
     });
 }
 
-function sendFile(file, targetId, nickname = '', note = '') {
+function sendFile(file, targetId, nickname = '', note = '', explicitPendingId = '') {
     return new Promise(async (resolve) => {
         let isResolved = false;
         const done = () => {
@@ -3578,9 +3578,19 @@ function sendFile(file, targetId, nickname = '', note = '') {
 
         const executeSend = async (activePeer) => {
             const processedFile = file;
-            const fileId = consumePendingTransferRow(processedFile, targetId) || ((typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
-                ? crypto.randomUUID().replace(/-/g, '')
-                : `send_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`);
+            let fileId = explicitPendingId;
+            if (fileId) {
+                const el = document.getElementById(`item-${fileId}`);
+                if (el) {
+                    el.removeAttribute('data-pending-transfer');
+                    const status = el.querySelector('[id^="status-"]');
+                    if (status && activePeer) status.textContent = `To ${activePeer.name}`;
+                }
+            } else {
+                fileId = consumePendingTransferRow(processedFile, targetId) || ((typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+                    ? crypto.randomUUID().replace(/-/g, '')
+                    : `send_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`);
+            }
             const rawMeta = {
                 type: 'file-meta',
                 id: fileId,
