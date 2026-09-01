@@ -749,16 +749,14 @@
         width: min(480px, 100vw);
         background: var(--audit-bg);
         border-left: 1px solid var(--card-border);
-        display: flex;
+        display: none;
         flex-direction: column;
         z-index: 9999;
-        transform: translateX(100%);
-        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         box-shadow: -20px 0 60px rgba(0, 0, 0, 0.5);
     }
 
     .audit-console.open {
-        transform: translateX(0);
+        display: flex;
     }
 
     .audit-header {
@@ -6995,5 +6993,39 @@
         .custom-time-input-trigger {
             font-size: 0.75rem;
             padding: 0.25rem 0.45rem;
+        }
+    }
+
+    @media (max-width: 320px) {
+        .quick-reactions {
+            flex-wrap: wrap;
+            gap: 0.35rem;
+            padding: 0.5rem;
+        }
+
+        .lofi-controls {
+            display: none !important;
+        }
+
+        .lofi-radio-player {
+            display: none !important;
+        }
+
+        .emit-tab > span {
+            display: none;
+        }
+
+        .emit-tab {
+            padding: 0.35rem 0.5rem;
+            gap: 0;
+        }
+
+        .card-header {
+            gap: 0.25rem;
+        }
+
+        .card-header-right .btn-pill {
+            padding: 0.3rem 0.5rem;
+            font-size: 0.7rem;
         }
     }
