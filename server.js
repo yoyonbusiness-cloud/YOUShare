@@ -1627,6 +1627,8 @@ function getNearbyNetworkGroup(socket) {
     return server;
 }
 
-startServer(process.env.PORT || 8080);
+if (require.main === module) {
+    startServer(process.env.PORT || 8080);
+}
 
 module.exports = { startServer };
