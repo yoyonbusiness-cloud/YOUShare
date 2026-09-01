@@ -1579,7 +1579,8 @@ async function joinRoom(idParam, secretParam, isCreator = false, skipWipe = fals
             isCreator = true;
         }
     }
-    if (isCreator && !rawId.startsWith('AIR-')) {
+    const isScheduleEnabled = document.getElementById('enable-schedule-checkbox')?.checked;
+    if (isCreator && isScheduleEnabled && !rawId.startsWith('AIR-')) {
         const openTime = document.getElementById('recurring-open-time') ? document.getElementById('recurring-open-time').value : '';
         const closeTime = document.getElementById('recurring-close-time') ? document.getElementById('recurring-close-time').value : '';
         if (openTime && closeTime && openTime !== closeTime) {

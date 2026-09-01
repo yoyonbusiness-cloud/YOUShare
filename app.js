@@ -1989,10 +1989,11 @@ if (ui.buttons.finalJoinGenerated) {
         const inactivityMins = document.getElementById('inactivity-timer-select').value;
         localStorage.setItem('ys_inactivity_mins', inactivityMins);
 
+        const isScheduleEnabled = document.getElementById('enable-schedule-checkbox')?.checked;
         const openTime = document.getElementById('recurring-open-time') ? document.getElementById('recurring-open-time').value : '';
         const closeTime = document.getElementById('recurring-close-time') ? document.getElementById('recurring-close-time').value : '';
 
-        if (openTime && closeTime) {
+        if (isScheduleEnabled && openTime && closeTime && openTime !== closeTime) {
             const now = new Date();
             const currentMins = now.getHours() * 60 + now.getMinutes();
             const [openH, openM] = openTime.split(':').map(Number);
