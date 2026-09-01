@@ -1605,16 +1605,16 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
         inviteUrl: `${window.location.origin}${window.location.pathname}?workspace=${rawId}`
     };
     syncDebugState();
-    if (isCreator || rawId.startsWith('AIR-')) {
-        try {
-            localStorage.setItem('ys_workspace', rawId);
-            if (secret) localStorage.setItem('ys_guard', secret);
-            else localStorage.removeItem('ys_guard');
-            localStorage.setItem('ys_is_creator', isCreator ? 'true' : 'false');
-        } catch (e) { }
-        ui.text.currentRoom.textContent = roomId;
-        if (ui.text.displayRoomCode) ui.text.displayRoomCode.textContent = roomId;
-    }
+    try {
+        localStorage.setItem('ys_workspace', rawId);
+        if (secret) localStorage.setItem('ys_guard', secret);
+        else localStorage.removeItem('ys_guard');
+        localStorage.setItem('ys_is_creator', isCreator ? 'true' : 'false');
+    } catch (e) { }
+    if (ui.text.currentRoom) ui.text.currentRoom.textContent = roomId;
+    if (ui.text.displayRoomCode) ui.text.displayRoomCode.textContent = roomId;
+    if (document.getElementById('current-room-display')) document.getElementById('current-room-display').textContent = roomId;
+    if (document.getElementById('display-room-code')) document.getElementById('display-room-code').textContent = roomId;
 
     const myPublicJwk = isSecure ? await crypto.subtle.exportKey('jwk', myECDHKeyPair.publicKey) : { insecure: true };
 
@@ -1623,16 +1623,15 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
 
     const inviteUrl = `${window.location.origin}${window.location.pathname}?workspace=${roomId}`;
     if (ui.inputs.shareUrl) ui.inputs.shareUrl.value = inviteUrl;
+    if (document.getElementById('share-url')) document.getElementById('share-url').value = inviteUrl;
 
     if (typeof QRCode !== 'undefined' && ui.qrContainer) {
         ui.qrContainer.innerHTML = '';
         new QRCode(ui.qrContainer, { text: inviteUrl, width: 140, height: 140 });
     }
 
-    if (isCreator) {
-        if (window.history && window.history.pushState) {
-            window.history.pushState({ workspace: roomId, guard: secret }, '', inviteUrl);
-        }
+    if (window.history && window.history.pushState) {
+        window.history.pushState({ workspace: roomId, guard: secret }, '', inviteUrl);
     }
 
     let myName = localStorage.getItem('ys_persistent_name') || sessionStorage.getItem('ys_user_name');
@@ -1703,9 +1702,7 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
         ActivityTracker.addP2PRoom(roomId, { name: roomId });
     }
 
-    if (isCreator || rawId.startsWith('AIR-')) {
-        showScreen('transfer');
-    }
+    showScreen('transfer');
     updateConnectionStatus(isCreator ? 'waiting' : 'connecting');
     if (isCreator && !hasPersistedTransferActivityForCurrentRoom()) {
         updateConnectionStatus('connected');
@@ -1729,7 +1726,7 @@ async function joinRoom(idParam, secretParam, isCreator = false) {
         textEl.textContent = 'No time specified';
     }
 
-    if (isCreator && window.tabStates) {
+    if (window.tabStates) {
         const tabId = 'room-' + rawId;
         if (!window.tabStates[tabId]) {
             window.tabStates[tabId] = {

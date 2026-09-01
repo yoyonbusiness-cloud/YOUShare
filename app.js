@@ -599,17 +599,11 @@ function initNearbyDiscoveryClient() {
         if (typeof joinRoom === 'function') {
             joinRoom(autoRoomCode, '', false);
         }
-        if (typeof showScreen === 'function') {
-            showScreen('transfer');
-        }
     });
 
     socket.on('nearby-request-accepted', ({ autoRoomCode }) => {
         if (typeof joinRoom === 'function') {
             joinRoom(autoRoomCode, '', true);
-        }
-        if (typeof showScreen === 'function') {
-            showScreen('transfer');
         }
         if (_nearbyPendingFiles && _nearbyPendingFiles.length) {
             const filesToSend = [..._nearbyPendingFiles];
