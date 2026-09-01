@@ -681,6 +681,7 @@ function initNearbyDiscoveryClient() {
                 const manifest = files.map(f => ({ name: f.name, size: f.size, type: f.type }));
 
                 socket.emit('nearby-send-request', targetSocketId, manifest);
+                showToast('Request Sent', 'Waiting for nearby device to accept...', 'info');
             } else {
                 const file = files[0];
                 const isCollection = files.length > 1;

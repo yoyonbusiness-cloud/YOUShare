@@ -896,10 +896,18 @@ function getNearbyNetworkGroup(socket) {
         });
 
         socket.on('nearby-send-request', (targetId, fileManifest) => {
-            const group = nearbyGroups.get(socket.nearbyNetworkGroup);
             let targetPeer = null;
-            if (group) {
-                targetPeer = group.get(targetId) || Array.from(group.values()).find(p => p.id === targetId);
+            if (socket.nearbyNetworkGroup) {
+                const group = nearbyGroups.get(socket.nearbyNetworkGroup);
+                if (group) {
+                    targetPeer = group.get(targetId) || Array.from(group.values()).find(p => p.id === targetId || p.deviceId === targetId);
+                }
+            }
+            if (!targetPeer) {
+                for (const group of nearbyGroups.values()) {
+                    targetPeer = group.get(targetId) || Array.from(group.values()).find(p => p.id === targetId || p.deviceId === targetId);
+                    if (targetPeer && targetPeer.socket) break;
+                }
             }
             if (targetPeer && targetPeer.socket) {
                 const autoRoomCode = 'AIR-' + crypto.randomBytes(3).toString('hex').toUpperCase();
