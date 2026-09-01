@@ -4701,6 +4701,46 @@
         border-bottom: 1px solid var(--card-border);
         overflow-x: auto;
         align-items: center;
+        scrollbar-width: none;
+    }
+
+    .emit-tabs-bar::-webkit-scrollbar {
+        display: none;
+    }
+
+    @media (max-width: 768px) {
+        .emit-tabs-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            padding: 0.5rem 0.75rem;
+            border-top: 1px solid var(--card-border);
+            border-bottom: none;
+            gap: 0.35rem;
+            padding-bottom: env(safe-area-inset-bottom, 0.5rem);
+        }
+
+        .emit-tab {
+            flex: 1;
+            justify-content: center;
+            min-width: 0;
+            padding: 0.45rem 0.5rem;
+            font-size: 0.75rem;
+        }
+
+        .emit-tab span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 60px;
+        }
+
+        #screen-room,
+        #screen-transfer {
+            padding-bottom: 72px;
+        }
     }
 
     .emit-tab {

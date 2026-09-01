@@ -504,8 +504,11 @@
                             </div>
 
                             <div class="custom-word-area" style="margin-top: 1rem; width: 100%;">
-                                <span class="form-label text-center">RECURRING ROOM DAILY SCHEDULE (OPTIONAL)</span>
-                                <div style="display: flex; gap: 0.5rem;">
+                                <label style="display:flex; align-items:center; gap:0.65rem; color:var(--text-secondary); font-size:0.85rem; cursor:pointer; margin-bottom: 0.75rem;">
+                                    <input type="checkbox" id="enable-schedule-checkbox" onchange="document.getElementById('recurring-schedule-inputs').style.display=this.checked?'flex':'none'">
+                                    <span>Enable Daily Schedule (Optional)</span>
+                                </label>
+                                <div id="recurring-schedule-inputs" style="display:none; gap: 0.5rem;">
                                     <input type="time" id="recurring-open-time" class="form-input text-center"
                                         style="flex: 1;">
                                     <input type="time" id="recurring-close-time" class="form-input text-center"
