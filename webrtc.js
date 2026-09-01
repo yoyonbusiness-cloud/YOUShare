@@ -1579,11 +1579,13 @@ async function joinRoom(idParam, secretParam, isCreator = false, skipWipe = fals
             isCreator = true;
         }
     }
-    const openTime = document.getElementById('recurring-open-time') ? document.getElementById('recurring-open-time').value : '';
-    const closeTime = document.getElementById('recurring-close-time') ? document.getElementById('recurring-close-time').value : '';
-    if (openTime && closeTime) {
-        activeRoomScheduleMap[rawId] = { open: openTime, close: closeTime };
-        localStorage.setItem('ys_rooms_schedule', JSON.stringify(activeRoomScheduleMap));
+    if (isCreator && !rawId.startsWith('AIR-')) {
+        const openTime = document.getElementById('recurring-open-time') ? document.getElementById('recurring-open-time').value : '';
+        const closeTime = document.getElementById('recurring-close-time') ? document.getElementById('recurring-close-time').value : '';
+        if (openTime && closeTime && openTime !== closeTime) {
+            activeRoomScheduleMap[rawId] = { open: openTime, close: closeTime };
+            localStorage.setItem('ys_rooms_schedule', JSON.stringify(activeRoomScheduleMap));
+        }
     }
 
     const isSecure = window.isSecureContext && window.crypto && window.crypto.subtle;
@@ -1646,7 +1648,7 @@ async function joinRoom(idParam, secretParam, isCreator = false, skipWipe = fals
     const inactivityValue = document.getElementById('inactivity-timer-select') ? document.getElementById('inactivity-timer-select').value : '0';
     const allowedInactivityValues = new Set([0, 5, 10, 15, 30, 60]);
     const requestedInactivity = parseInt(inactivityValue, 10) || 0;
-    const inactivityMins = allowedInactivityValues.has(requestedInactivity) ? requestedInactivity : 0;
+    const inactivityMins = (rawId.startsWith('AIR-') || !allowedInactivityValues.has(requestedInactivity)) ? 0 : requestedInactivity;
     if (!myPersistentId) {
         try {
             myPersistentId = localStorage.getItem('emit-persistent-id') || sessionStorage.getItem('emit-persistent-id');
@@ -4133,11 +4135,11 @@ socket.on('global-stats-updated', (stats) => {
 });
 
 setInterval(() => {
-    if (!roomId) return;
+    if (!roomId || roomId.startsWith('AIR-')) return;
     const scheduleConfig = JSON.parse(localStorage.getItem('ys_rooms_schedule') || '{}');
     const normalizedRoom = roomId.toUpperCase();
     const config = scheduleConfig[normalizedRoom] || scheduleConfig[roomId];
-    if (!config) return;
+    if (!config || !config.open || !config.close || config.open === config.close) return;
     const { open, close } = config;
     if (typeof isCurrentTimeInSchedule === 'function' && !isCurrentTimeInSchedule(open, close)) {
         showToast('Workspace Closed', `Today's session (${open} – ${close}) has ended. The workspace will reopen tomorrow.`, 'info');
