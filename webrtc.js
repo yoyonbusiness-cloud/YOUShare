@@ -1738,8 +1738,15 @@ async function joinRoom(idParam, secretParam, isCreator = false, skipWipe = fals
                 chatHtml: '', peerListHtml: '', transfersHtml: '', socket: socket
             };
         }
-        window.activeTabId = tabId;
-        if (typeof window.renderTabsUI === 'function') window.renderTabsUI();
+        if (typeof window.switchTab === 'function') {
+            window.switchTab(tabId);
+        } else {
+            window.activeTabId = tabId;
+            if (typeof window.renderTabsUI === 'function') window.renderTabsUI();
+            showScreen('transfer');
+        }
+    } else {
+        showScreen('transfer');
     }
 
     updatePeerListUI();
@@ -2131,10 +2138,16 @@ socket.on('peer-list', async (peerList) => {
                     chatHtml: '', peerListHtml: '', transfersHtml: '', socket: socket
                 };
             }
-            window.activeTabId = tabId;
-            if (typeof window.renderTabsUI === 'function') window.renderTabsUI();
+            if (typeof window.switchTab === 'function') {
+                window.switchTab(tabId);
+            } else {
+                window.activeTabId = tabId;
+                if (typeof window.renderTabsUI === 'function') window.renderTabsUI();
+                showScreen('transfer');
+            }
+        } else {
+            showScreen('transfer');
         }
-        showScreen('transfer');
         if (window.isSpectator) {
             const dropZone = document.getElementById('drop-zone');
             if (dropZone) {
