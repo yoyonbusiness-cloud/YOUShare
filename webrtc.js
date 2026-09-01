@@ -1488,20 +1488,22 @@ if (leaveTimerMinInput) {
     });
 }
 
-async function joinRoom(idParam, secretParam, isCreator = false) {
+async function joinRoom(idParam, secretParam, isCreator = false, skipWipe = false) {
     window.safetyTimerActive = false;
     window.isShadowTab = false;
     window.primarySocketId = null;
-    const hasPersistedTransferState = Object.keys(loadP2PResumeState()).length > 0 || Object.keys(loadP2PSendResumeState()).length > 0;
-    const hasPersistedTransferActivity = (() => {
-        try {
-            const savedTransfers = JSON.parse(localStorage.getItem('emit-p2p-transfers') || '{}');
-            return savedTransfers && typeof savedTransfers === 'object' && Object.keys(savedTransfers).length > 0;
-        } catch (e) {
-            return false;
-        }
-    })();
-    await performWipe(!(hasPersistedTransferState || hasPersistedTransferActivity));
+    if (!skipWipe) {
+        const hasPersistedTransferState = Object.keys(loadP2PResumeState()).length > 0 || Object.keys(loadP2PSendResumeState()).length > 0;
+        const hasPersistedTransferActivity = (() => {
+            try {
+                const savedTransfers = JSON.parse(localStorage.getItem('emit-p2p-transfers') || '{}');
+                return savedTransfers && typeof savedTransfers === 'object' && Object.keys(savedTransfers).length > 0;
+            } catch (e) {
+                return false;
+            }
+        })();
+        await performWipe(!(hasPersistedTransferState || hasPersistedTransferActivity));
+    }
 
     let id = typeof idParam === 'string' ? idParam : null;
     if (!id && ui.inputs.roomId) id = ui.inputs.roomId.value.trim();

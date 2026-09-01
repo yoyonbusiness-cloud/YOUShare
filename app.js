@@ -597,13 +597,13 @@ function initNearbyDiscoveryClient() {
 
     socket.on('nearby-pair-ready', ({ autoRoomCode }) => {
         if (typeof joinRoom === 'function') {
-            joinRoom(autoRoomCode, '', false);
+            joinRoom(autoRoomCode, '', false, true);
         }
     });
 
     socket.on('nearby-request-accepted', ({ autoRoomCode }) => {
         if (typeof joinRoom === 'function') {
-            joinRoom(autoRoomCode, '', true);
+            joinRoom(autoRoomCode, '', true, true);
         }
         if (_nearbyPendingFiles && _nearbyPendingFiles.length) {
             const filesToSend = [..._nearbyPendingFiles];
