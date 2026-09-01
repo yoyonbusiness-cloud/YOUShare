@@ -346,7 +346,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    initNearbyDiscoveryClient();
     initFeedbackModal();
 });
 
@@ -526,7 +525,8 @@ function startNearbyTransferWithMode(peerId, mode) {
 }
 
 function initNearbyDiscoveryClient() {
-    if (typeof socket === 'undefined') return;
+    if (typeof socket === 'undefined' || window._nearbyDiscoveryClientInitialized) return;
+    window._nearbyDiscoveryClientInitialized = true;
 
     socket.on('nearby-peers-list', (peers) => {
         renderNearbyList(peers);
@@ -587,6 +587,9 @@ function initNearbyDiscoveryClient() {
         acceptBtn.onclick = () => {
             modal.style.display = 'none';
             socket.emit('nearby-accept-request', { fromSocketId, fromDeviceId, autoRoomCode });
+            if (typeof joinRoom === 'function') {
+                joinRoom(autoRoomCode, '', false, true);
+            }
         };
 
         rejectBtn.onclick = () => {
@@ -596,13 +599,13 @@ function initNearbyDiscoveryClient() {
     });
 
     socket.on('nearby-pair-ready', ({ autoRoomCode }) => {
-        if (typeof joinRoom === 'function') {
+        if (typeof joinRoom === 'function' && (typeof roomId === 'undefined' || roomId !== autoRoomCode)) {
             joinRoom(autoRoomCode, '', false, true);
         }
     });
 
     socket.on('nearby-request-accepted', ({ autoRoomCode }) => {
-        if (typeof joinRoom === 'function') {
+        if (typeof joinRoom === 'function' && (typeof roomId === 'undefined' || roomId !== autoRoomCode)) {
             joinRoom(autoRoomCode, '', true, true);
         }
         if (_nearbyPendingFiles && _nearbyPendingFiles.length) {

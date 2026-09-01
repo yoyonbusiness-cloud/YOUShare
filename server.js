@@ -917,12 +917,23 @@ function getNearbyNetworkGroup(socket) {
 
         socket.on('nearby-accept-request', ({ fromSocketId, fromDeviceId, autoRoomCode }) => {
             let sender = fromSocketId ? io.sockets.sockets.get(fromSocketId) : null;
-            if (!sender && fromDeviceId && socket.nearbyNetworkGroup) {
-                const group = nearbyGroups.get(socket.nearbyNetworkGroup);
-                if (group) {
-                    const p = group.get(fromDeviceId);
-                    if (p && p.socket && p.socket.connected) {
-                        sender = p.socket;
+            if (!sender && fromDeviceId) {
+                if (socket.nearbyNetworkGroup) {
+                    const group = nearbyGroups.get(socket.nearbyNetworkGroup);
+                    if (group) {
+                        const p = group.get(fromDeviceId);
+                        if (p && p.socket && p.socket.connected) {
+                            sender = p.socket;
+                        }
+                    }
+                }
+                if (!sender) {
+                    for (const group of nearbyGroups.values()) {
+                        const p = group.get(fromDeviceId);
+                        if (p && p.socket && p.socket.connected) {
+                            sender = p.socket;
+                            break;
+                        }
                     }
                 }
             }
