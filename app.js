@@ -731,10 +731,10 @@ function initNearbyDiscoveryClient() {
                             });
                             uploadedFiles.push({ name: f.name, size: f.size, type: f.type, url: itemRes.url, token: itemRes.token });
                         }
-                        _setProgress('Finalizing collection...', 99, 'Bundling...');
+                        const totalCollectionSize = files.reduce((acc, f) => acc + (f.size || 0), 0);
                         const collectionBlob = new Blob([JSON.stringify({ name: `${files.length} Files`, files: uploadedFiles })], { type: 'application/json' });
-                        const collectionFile = new File([collectionBlob], 'collection.json', { type: 'application/json' });
-                        dropResult = await window.hostedDrop(collectionFile, () => {}, 60 * 60 * 1000, '', { isCollection: true });
+                        const collectionFile = new File([collectionBlob], 'workspace.json', { type: 'application/json' });
+                        dropResult = await window.hostedDrop(collectionFile, () => {}, 60 * 60 * 1000, `${files.length} Files`, { isCollection: true, totalSize: totalCollectionSize, displayName: `${files.length} Files` });
                     } else {
                         _setProgress(file.name, 0, 'Encrypting & uploading...');
                         dropResult = await window.hostedDrop(file, (phase, pct) => {
@@ -1564,7 +1564,7 @@ async function startHostedUpload(files) {
                 files: uploadedFiles
             };
             const collectionBlob = new Blob([JSON.stringify(collectionMeta)], { type: 'application/json' });
-            const collectionFile = new File([collectionBlob], `${nickname || 'collection'}.json`, { type: 'application/json' });
+            const collectionFile = new File([collectionBlob], `${nickname || 'workspace'}.json`, { type: 'application/json' });
 
             setActiveHostedUploadState({
                 token,
@@ -1584,6 +1584,7 @@ async function startHostedUpload(files) {
             }, expiryMs, nickname, {
                 token,
                 totalSize: prepared.totalSize,
+                displayName: nickname ? `${nickname} (${fileCount} files)` : `Shared Workspace (${fileCount} files)`,
                 isCollection: true,
                 skipActivity: true,
                 ...dropOptions

@@ -134,12 +134,14 @@ async function uploadHostedChunk({ token, index, cipherBuf, onProgress }) {
     });
 }
 
-async function finalizeHostedUploadSession(token, payload = null, isCollection = false, burnOnDownload = false) {
+async function finalizeHostedUploadSession(token, payload = null, isCollection = false, burnOnDownload = false, options = {}) {
     const fd = new FormData();
     fd.append('token', token);
     if (payload) fd.append('payload', JSON.stringify(payload));
     if (isCollection) fd.append('isCollection', 'true');
     if (burnOnDownload) fd.append('burnOnDownload', 'true');
+    if (options.totalSize) fd.append('totalSize', options.totalSize.toString());
+    if (options.displayName) fd.append('displayName', options.displayName);
     const res = await fetch('/upload-finalize', { method: 'POST', body: fd });
     if (!res.ok) throw new Error('Failed to finalize upload: ' + (await res.text()));
     return await res.json();
@@ -311,8 +313,10 @@ async function hostedDrop(file, onProgress, durationMs = 60 * 60 * 1000, nicknam
 
     clearHostedResumeState(token);
     if (typeof ActivityTracker !== 'undefined') ActivityTracker.setHostedLinkResuming(token, false);
-    onProgress?.('finalizing', 100);
-    const finalizeResult = await finalizeHostedUploadSession(token, payload, !!options.isCollection, !!options.burnOnDownload);
+    const finalizeResult = await finalizeHostedUploadSession(token, payload, !!options.isCollection, !!options.burnOnDownload, {
+        totalSize: options.totalSize,
+        displayName: options.displayName || nickname
+    });
     const finalizedInfo = (finalizeResult && finalizeResult.expires)
         ? finalizeResult
         : await fetchHostedDropInfo(token);
@@ -447,10 +451,37 @@ async function receiveHostedDrop() {
     const directionEl = document.getElementById('drop-direction-indicator');
     const statusTextEl = document.getElementById('drop-status-text');
 
+    const mainIconEl = document.getElementById('drop-main-icon');
+
     const applyMeta = (nextMeta) => {
         meta = nextMeta;
-        if (filenameEl) filenameEl.textContent = meta.filename;
-        if (sizeEl) sizeEl.textContent = typeof uiShared !== 'undefined' && uiShared.formatBytes ? uiShared.formatBytes(meta.size) : `${(meta.size / 1e6).toFixed(2)} MB`;
+        const isCol = !!(meta.isCollection || (meta.filename && meta.filename.endsWith('.json')));
+        if (isCol && mainIconEl) {
+            mainIconEl.innerHTML = '<i class="fa-solid fa-layer-group"></i>';
+        }
+        if (filenameEl) {
+            if (isCol) {
+                if (meta.displayName) {
+                    filenameEl.textContent = meta.displayName;
+                } else if (meta.filename) {
+                    const cleanName = meta.filename.replace(/\.json$/i, '');
+                    filenameEl.textContent = (cleanName === 'collection' || cleanName === 'workspace') ? 'Shared Workspace' : cleanName;
+                } else {
+                    filenameEl.textContent = 'Shared Workspace';
+                }
+            } else {
+                filenameEl.textContent = meta.filename;
+            }
+        }
+        if (sizeEl) {
+            if (isCol && meta.totalSize) {
+                sizeEl.textContent = typeof uiShared !== 'undefined' && uiShared.formatBytes ? uiShared.formatBytes(meta.totalSize) : `${(meta.totalSize / 1e6).toFixed(2)} MB`;
+            } else if (isCol) {
+                sizeEl.textContent = 'Workspace Collection';
+            } else {
+                sizeEl.textContent = typeof uiShared !== 'undefined' && uiShared.formatBytes ? uiShared.formatBytes(meta.size) : `${(meta.size / 1e6).toFixed(2)} MB`;
+            }
+        }
         if (directionEl && statusTextEl) {
             let iconClass = '';
             let label = '';
@@ -621,8 +652,18 @@ async function receiveHostedDrop() {
                 if (card) {
                     card.style.maxWidth = '640px';
                 }
-                if (filenameEl) filenameEl.textContent = collectionJson.name || 'Shared Workspace';
-                if (sizeEl) sizeEl.textContent = collectionJson.files.length + ' files';
+                if (mainIconEl) {
+                    mainIconEl.innerHTML = '<i class="fa-solid fa-layer-group"></i>';
+                }
+                const totalFilesCount = collectionJson.files.length;
+                const totalCalculatedBytes = collectionJson.files.reduce((acc, f) => acc + (f.size || 0), 0);
+                const totalSizeFormatted = typeof uiShared !== 'undefined' && uiShared.formatBytes ? uiShared.formatBytes(totalCalculatedBytes) : `${(totalCalculatedBytes / (1024 * 1024)).toFixed(2)} MB`;
+                const rawName = collectionJson.name || (meta.displayName || '') || (meta.filename ? meta.filename.replace(/\.json$/i, '') : '') || 'Shared Workspace';
+                const cleanName = (rawName === 'collection' || rawName === 'workspace') ? 'Shared Workspace' : rawName;
+                const finalDisplayName = cleanName.includes(`(${totalFilesCount} files)`) ? cleanName : `${cleanName} (${totalFilesCount} files)`;
+
+                if (filenameEl) filenameEl.textContent = finalDisplayName;
+                if (sizeEl) sizeEl.textContent = `${totalFilesCount} files · ${totalSizeFormatted}`;
                 if (statusEl) statusEl.textContent = 'Each file is decrypted locally in your browser.';
                 const collectionDiv = document.getElementById('collection-list');
                 const itemsDiv = document.getElementById('collection-items');
@@ -631,7 +672,7 @@ async function receiveHostedDrop() {
 
                 if (downloadBtn) {
                     downloadBtn.style.display = 'inline-flex';
-                    downloadBtn.innerHTML = `<i class="fa-solid fa-arrow-down"></i> Download All (${collectionJson.files.length} Files)`;
+                    downloadBtn.innerHTML = `<i class="fa-solid fa-arrow-down"></i> Download All (${totalFilesCount} Files)`;
                 }
 
                 async function downloadCollectionItem(file, onProgress) {

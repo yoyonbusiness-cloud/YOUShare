@@ -502,6 +502,8 @@ function startServer(port = 3000) {
         const expires = session.expires || (Date.now() + session.expiryMs);
         const isCollection = req.body.isCollection === 'true' || req.body.isCollection === true;
         const burnOnDownload = req.body.burnOnDownload === 'true' || req.body.burnOnDownload === true;
+        const totalSize = req.body.totalSize ? parseInt(req.body.totalSize) : null;
+        const displayName = req.body.displayName || null;
         const manifest = {
             mode: 'chunked',
             filename: session.filename,
@@ -510,6 +512,8 @@ function startServer(port = 3000) {
             chunkSize: session.chunkSize,
             chunkCount: session.chunkCount,
             isCollection: isCollection,
+            totalSize: totalSize,
+            displayName: displayName,
             burnOnDownload: burnOnDownload
         };
 
@@ -581,7 +585,9 @@ function startServer(port = 3000) {
                 chunkSize: meta.chunkSize,
                 chunkCount: meta.chunkCount,
                 burnOnDownload: !!meta.burnOnDownload,
-                isCollection: !!meta.isCollection || (meta.filename && meta.filename.endsWith('.json'))
+                isCollection: !!meta.isCollection || (meta.filename && meta.filename.endsWith('.json')),
+                totalSize: meta.totalSize || null,
+                displayName: meta.displayName || null
             });
             return;
         }
