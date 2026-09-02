@@ -617,7 +617,6 @@ async function receiveHostedDrop() {
             }
             const collectionJson = JSON.parse(rawJson);
             if (collectionJson && Array.isArray(collectionJson.files)) {
-                downloadBtn.style.display = 'none';
                 const card = document.querySelector('.card');
                 if (card) {
                     card.style.maxWidth = '640px';
@@ -628,13 +627,208 @@ async function receiveHostedDrop() {
                 const collectionDiv = document.getElementById('collection-list');
                 const itemsDiv = document.getElementById('collection-items');
                 const countBadge = document.getElementById('collection-count-badge');
+                const dlAllHeaderBtn = document.getElementById('collection-download-all-btn');
+
+                if (downloadBtn) {
+                    downloadBtn.style.display = 'inline-flex';
+                    downloadBtn.innerHTML = `<i class="fa-solid fa-arrow-down"></i> Download All (${collectionJson.files.length} Files)`;
+                }
+
+                async function downloadCollectionItem(file, onProgress) {
+                    const fileUrl = new URL(file.url, window.location.origin);
+                    let fileToken = file.token || fileUrl.searchParams.get('t');
+                    if (!fileToken) {
+                        const match = fileUrl.pathname.match(/\/h\/([a-zA-Z0-9_-]+)/);
+                        if (match) fileToken = match[1];
+                    }
+                    let fileKeyB64 = null;
+                    let fileIvB64 = null;
+                    const fileHash = fileUrl.hash || '';
+                    if (fileHash.startsWith('#key=')) {
+                        try {
+                            const fileRawFrag = decodeURIComponent(fileHash.slice(5));
+                            const fileFrag = JSON.parse(fileRawFrag);
+                            fileKeyB64 = Array.isArray(fileFrag) ? fileFrag[1] : fileFrag.k;
+                            fileIvB64 = Array.isArray(fileFrag) ? fileFrag[2] : fileFrag.iv;
+                        } catch { }
+                    } else if (fileHash.length > 1) {
+                        const rawKeyPart = fileHash.replace(/^#(k=)?/, '');
+                        try {
+                            const packed = b64UrlToUint8(rawKeyPart);
+                            if (packed.length >= 36) {
+                                fileKeyB64 = uint8ToB64(packed.slice(0, 32));
+                                fileIvB64 = uint8ToB64(packed.slice(32, 36));
+                            } else {
+                                fileKeyB64 = uint8ToB64(packed);
+                            }
+                        } catch { }
+                    }
+                    const fileKey = await importDropKey(fileKeyB64);
+
+                    const fileInfoResp = await fetch(`/drop-info/${fileToken}`);
+                    if (!fileInfoResp.ok) throw new Error('File expired or not found');
+                    const fileMeta = await fileInfoResp.json();
+
+                    let fileBlob;
+                    if (fileMeta.mode === 'chunked' && fileMeta.chunkCount) {
+                        const fIvPrefix4 = b64ToUint8(fileIvB64);
+                        const fParts = [];
+                        for (let fi = 0; fi < fileMeta.chunkCount; fi++) {
+                            if (onProgress) onProgress(fi + 1, fileMeta.chunkCount);
+                            const fResp = await fetch(`/download-chunk/${fileToken}/${fi}`);
+                            if (!fResp.ok) throw new Error('Chunk failed');
+                            const fCipherBuf = await fResp.arrayBuffer();
+                            const fIv = deriveChunkIv(fIvPrefix4, fi);
+                            const fPlain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fIv }, fileKey, fCipherBuf);
+                            fParts.push(new Blob([fPlain]));
+                        }
+                        fileBlob = new Blob(fParts);
+                    } else {
+                        if (onProgress) onProgress(1, 1);
+                        const fResp = await fetch(`/download/${fileToken}`);
+                        if (!fResp.ok) throw new Error('Download failed');
+                        const fPackedBuf = await fResp.arrayBuffer();
+                        const fIv = new Uint8Array(fPackedBuf, 0, 12);
+                        const fCipher = fPackedBuf.slice(12);
+                        const fPlain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fIv }, fileKey, fCipher);
+                        fileBlob = new Blob([fPlain]);
+                    }
+
+                    const fA = document.createElement('a');
+                    const blobUrl = URL.createObjectURL(fileBlob);
+                    fA.href = blobUrl;
+                    fA.download = fileMeta.filename || file.name || 'download';
+                    document.body.appendChild(fA);
+                    fA.click();
+                    setTimeout(() => {
+                        fA.remove();
+                        URL.revokeObjectURL(blobUrl);
+                    }, 20000);
+                }
+
+                let isDownloadingAll = false;
+                async function downloadAllCollectionFiles() {
+                    if (isDownloadingAll) return;
+                    isDownloadingAll = true;
+
+                    if (downloadBtn) {
+                        downloadBtn.disabled = true;
+                        downloadBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading all files...';
+                    }
+                    if (dlAllHeaderBtn) {
+                        dlAllHeaderBtn.disabled = true;
+                        dlAllHeaderBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading...';
+                    }
+
+                    let successCount = 0;
+                    const totalFiles = collectionJson.files.length;
+
+                    for (let i = 0; i < totalFiles; i++) {
+                        const file = collectionJson.files[i];
+                        const itemEl = itemsDiv ? itemsDiv.children[i] : null;
+                        const dlBtn = itemEl ? itemEl.querySelector('.collection-dl-btn') : null;
+
+                        if (downloadBtn) {
+                            downloadBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Downloading ${i + 1}/${totalFiles}: ${file.name}`;
+                        }
+                        if (dlAllHeaderBtn) {
+                            dlAllHeaderBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${i + 1}/${totalFiles}`;
+                        }
+                        if (statusEl) {
+                            statusEl.textContent = `Downloading file ${i + 1} of ${totalFiles}: ${file.name}...`;
+                        }
+                        if (dlBtn) {
+                            dlBtn.disabled = true;
+                            dlBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+                        }
+
+                        try {
+                            await downloadCollectionItem(file, (part, total) => {
+                                if (total > 1) {
+                                    if (dlBtn) dlBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${part}/${total}`;
+                                    if (downloadBtn) downloadBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> File ${i + 1}/${totalFiles} (${part}/${total})`;
+                                }
+                            });
+                            if (dlBtn) {
+                                dlBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
+                                dlBtn.style.background = 'var(--accent-emerald)';
+                            }
+                            successCount++;
+                            if (typeof playProceduralSound === 'function') playProceduralSound('pop');
+                        } catch (err) {
+                            if (dlBtn) {
+                                dlBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+                                dlBtn.style.background = 'var(--accent-red, #ef4444)';
+                                dlBtn.disabled = false;
+                            }
+                        }
+
+                        if (i < totalFiles - 1) {
+                            await new Promise(r => setTimeout(r, 400));
+                        }
+                    }
+
+                    if (downloadBtn) {
+                        if (successCount === totalFiles) {
+                            downloadBtn.innerHTML = '<i class="fa-solid fa-check"></i> All Files Downloaded';
+                            downloadBtn.style.background = 'var(--accent-emerald)';
+                        } else {
+                            downloadBtn.disabled = false;
+                            downloadBtn.innerHTML = `<i class="fa-solid fa-rotate-right"></i> Retry Failed (${successCount}/${totalFiles} saved)`;
+                        }
+                    }
+                    if (dlAllHeaderBtn) {
+                        if (successCount === totalFiles) {
+                            dlAllHeaderBtn.innerHTML = '<i class="fa-solid fa-check"></i> Downloaded';
+                            dlAllHeaderBtn.style.background = 'var(--accent-emerald)';
+                        } else {
+                            dlAllHeaderBtn.disabled = false;
+                            dlAllHeaderBtn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> Retry';
+                        }
+                    }
+                    if (statusEl) {
+                        if (successCount === totalFiles) {
+                            statusEl.textContent = `✓ All ${totalFiles} files downloaded successfully.`;
+                        } else {
+                            statusEl.textContent = `Downloaded ${successCount} of ${totalFiles} files.`;
+                        }
+                    }
+
+                    if (meta.burnOnDownload && successCount === totalFiles) {
+                        fetch('/drop-burn', { method: 'POST', body: new URLSearchParams({ token }) }).catch(() => {});
+                        const card = document.querySelector('.card') || document.body;
+                        if (typeof triggerDustExplosion === 'function') triggerDustExplosion(card);
+                        if (statusEl) statusEl.textContent = '🔥 Burned: This link has self-destructed.';
+                        if (downloadBtn) {
+                            downloadBtn.disabled = true;
+                            downloadBtn.innerHTML = '🔥 Burned';
+                            downloadBtn.style.background = 'var(--accent-danger, #ef4444)';
+                        }
+                        if (dlAllHeaderBtn) {
+                            dlAllHeaderBtn.disabled = true;
+                            dlAllHeaderBtn.innerHTML = '🔥 Burned';
+                            dlAllHeaderBtn.style.background = 'var(--accent-danger, #ef4444)';
+                        }
+                    }
+
+                    isDownloadingAll = false;
+                }
+
+                if (downloadBtn) {
+                    downloadBtn.onclick = downloadAllCollectionFiles;
+                }
+                if (dlAllHeaderBtn) {
+                    dlAllHeaderBtn.onclick = downloadAllCollectionFiles;
+                }
+
                 if (collectionDiv && itemsDiv) {
                     collectionDiv.style.display = 'block';
                     if (countBadge) countBadge.textContent = collectionJson.files.length;
                     itemsDiv.innerHTML = '';
-                    collectionJson.files.forEach(file => {
+                    collectionJson.files.forEach((file, index) => {
                         const item = document.createElement('div');
                         item.className = 'collection-item';
+                        item.setAttribute('data-index', index.toString());
 
                         const ext = file.name.split('.').pop().toLowerCase();
                         let icon = 'fa-file';
@@ -663,70 +857,11 @@ async function receiveHostedDrop() {
                             dlBtn.disabled = true;
                             dlBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
                             try {
-                                const fileUrl = new URL(file.url, window.location.origin);
-                                let fileToken = fileUrl.searchParams.get('t');
-                                if (!fileToken) {
-                                    const match = fileUrl.pathname.match(/\/h\/([a-zA-Z0-9_-]+)/);
-                                    if (match) fileToken = match[1];
-                                }
-                                let fileKeyB64 = null;
-                                let fileIvB64 = null;
-                                const fileHash = fileUrl.hash || '';
-                                if (fileHash.startsWith('#key=')) {
-                                    try {
-                                        const fileRawFrag = decodeURIComponent(fileHash.slice(5));
-                                        const fileFrag = JSON.parse(fileRawFrag);
-                                        fileKeyB64 = Array.isArray(fileFrag) ? fileFrag[1] : fileFrag.k;
-                                        fileIvB64 = Array.isArray(fileFrag) ? fileFrag[2] : fileFrag.iv;
-                                    } catch { }
-                                } else if (fileHash.length > 1) {
-                                    const rawKeyPart = fileHash.replace(/^#(k=)?/, '');
-                                    try {
-                                        const packed = b64UrlToUint8(rawKeyPart);
-                                        if (packed.length >= 36) {
-                                            fileKeyB64 = uint8ToB64(packed.slice(0, 32));
-                                            fileIvB64 = uint8ToB64(packed.slice(32, 36));
-                                        } else {
-                                            fileKeyB64 = uint8ToB64(packed);
-                                        }
-                                    } catch { }
-                                }
-                                const fileKey = await importDropKey(fileKeyB64);
-
-                                const fileInfoResp = await fetch(`/drop-info/${fileToken}`);
-                                if (!fileInfoResp.ok) throw new Error('File expired or not found');
-                                const fileMeta = await fileInfoResp.json();
-
-                                if (fileMeta.mode === 'chunked' && fileMeta.chunkCount) {
-                                    const fIvPrefix4 = b64ToUint8(fileIvB64);
-                                    const fParts = [];
-                                    for (let fi = 0; fi < fileMeta.chunkCount; fi++) {
-                                        dlBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${fi + 1}/${fileMeta.chunkCount}`;
-                                        const fResp = await fetch(`/download-chunk/${fileToken}/${fi}`);
-                                        if (!fResp.ok) throw new Error('Chunk failed');
-                                        const fCipherBuf = await fResp.arrayBuffer();
-                                        const fIv = deriveChunkIv(fIvPrefix4, fi);
-                                        const fPlain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fIv }, fileKey, fCipherBuf);
-                                        fParts.push(new Blob([fPlain]));
+                                await downloadCollectionItem(file, (part, total) => {
+                                    if (total > 1) {
+                                        dlBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${part}/${total}`;
                                     }
-                                    const fBlob = new Blob(fParts);
-                                    const fA = document.createElement('a');
-                                    fA.href = URL.createObjectURL(fBlob);
-                                    fA.download = fileMeta.filename;
-                                    fA.click();
-                                } else {
-                                    const fResp = await fetch(`/download/${fileToken}`);
-                                    const fPackedBuf = await fResp.arrayBuffer();
-                                    const fIv = new Uint8Array(fPackedBuf, 0, 12);
-                                    const fCipher = fPackedBuf.slice(12);
-                                    const fPlain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fIv }, fileKey, fCipher);
-                                    const fBlob = new Blob([fPlain]);
-                                    const fA = document.createElement('a');
-                                    fA.href = URL.createObjectURL(fBlob);
-                                    fA.download = fileMeta.filename;
-                                    fA.click();
-                                }
-
+                                });
                                 dlBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
                                 dlBtn.style.background = 'var(--accent-emerald)';
                                 if (typeof playProceduralSound === 'function') playProceduralSound('pop');
